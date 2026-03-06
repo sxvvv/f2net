@@ -9,7 +9,6 @@
 #   - 3 专家 MoE: 每个专家对应一个退化类型
 #   - patch_size=256, effective_batch=32 (bs=16 x grad_accum=2)
 #   - lr=2.5e-4, Charbonnier + FFT 频域损失 + 重建损失
-#   - 退化感知动态加权: 验证集 PSNR 驱动
 #   - 困难样本加权: PSNR < 28 dB 样本权重 x2
 #   - 余弦退火 + warmup 5K 步, EMA 0.9999
 #   - 300K 步 (~170 epochs on ~28K samples)
