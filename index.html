@@ -22,15 +22,14 @@
         .authors a{color:#8ec5fc;text-decoration:none}
         .authors a:hover{text-decoration:underline}
         .authors sup{font-size:.7em}
-        .affiliations{font-size:.82em;color:#94b8d4;margin-bottom:20px;line-height:1.6}
-        .venue{font-size:.95em;color:#f0c040;font-weight:600;margin-bottom:24px}
+        .affiliations{font-size:.82em;color:#94b8d4;margin-bottom:28px;line-height:1.6}
         .hero-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-        .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:6px;font-size:.92em;font-weight:600;text-decoration:none;transition:all .2s}
-        .btn-primary{background:var(--accent);color:#fff}
-        .btn-primary:hover{background:var(--accent-dark);transform:translateY(-1px)}
-        .btn-outline{background:rgba(255,255,255,.1);color:#fff;border:1.5px solid rgba(255,255,255,.3)}
-        .btn-outline:hover{background:rgba(255,255,255,.2);transform:translateY(-1px)}
-        .btn-disabled{background:rgba(255,255,255,.05);color:rgba(255,255,255,.4);border:1.5px solid rgba(255,255,255,.15);cursor:default;pointer-events:none}
+
+        /* Nerfies-style dark pill buttons */
+        .btn-pill{display:inline-flex;align-items:center;gap:8px;padding:10px 24px;border-radius:50px;font-size:.92em;font-weight:600;text-decoration:none;transition:all .25s;background:#363636;color:#fff;border:none;cursor:pointer}
+        .btn-pill:hover{background:#4a4a4a;transform:translateY(-1px)}
+        .btn-pill.disabled{opacity:.45;cursor:default;pointer-events:none}
+        .btn-pill i{font-size:1.1em}
 
         /* Sections */
         section{padding:40px 0}
@@ -38,12 +37,6 @@
 
         /* Abstract */
         .abstract-text{background:var(--card-bg);border-left:4px solid var(--accent);padding:20px 24px;border-radius:0 8px 8px 0;font-size:.95em;box-shadow:0 2px 8px rgba(0,0,0,.06)}
-
-        /* Highlights */
-        .highlights{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px}
-        .highlight-card{background:var(--card-bg);border-radius:8px;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,.06);border-top:3px solid var(--accent)}
-        .highlight-card .icon{font-size:1.4em;margin-bottom:8px}
-        .highlight-card p{font-size:.88em;color:var(--text-light)}
 
         /* Framework figure */
         .framework-fig{text-align:center;margin:20px 0}
@@ -69,10 +62,11 @@
         .slider-label.left{left:10px}
         .slider-label.right{right:10px}
 
-        /* Citation */
-        .bibtex-block{background:#1e1e1e;color:#d4d4d4;padding:20px 24px;border-radius:8px;font-family:"Courier New",monospace;font-size:.82em;line-height:1.6;overflow-x:auto;position:relative}
-        .copy-btn{position:absolute;top:10px;right:10px;background:#444;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:.8em}
-        .copy-btn:hover{background:#666}
+        /* Comparison strips */
+        .compare-section{margin-top:32px}
+        .compare-section h3{font-size:1.1em;color:var(--primary);margin-bottom:16px;font-weight:600}
+        .compare-strip{width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);margin-bottom:20px}
+        .compare-strip img{width:100%;display:block;border-radius:8px}
 
         /* Footer */
         footer{text-align:center;padding:30px 0;color:var(--text-light);font-size:.82em;border-top:1px solid var(--border)}
@@ -80,7 +74,6 @@
 
         @media(max-width:640px){
             .hero h1{font-size:1.5em}
-            .highlights{grid-template-columns:1fr}
             .hero-buttons{flex-direction:column;align-items:center}
         }
     </style>
@@ -107,10 +100,9 @@
             <sup>6</sup>FJNU &nbsp;&nbsp;
             <sup>*</sup>Corresponding author
         </p>
-        <p class="venue">Pattern Recognition</p>
         <div class="hero-buttons">
-            <span class="btn btn-disabled"><i class="fa-solid fa-file-pdf"></i> Paper (coming soon)</span>
-            <a href="https://github.com/sxvvv/f2net" class="btn btn-outline"><i class="fa-brands fa-github"></i> Code</a>
+            <span class="btn-pill disabled"><i class="fa-solid fa-file-pdf"></i> Paper</span>
+            <a href="https://github.com/sxvvv/f2net" class="btn-pill"><i class="fa-brands fa-github"></i> Code</a>
         </div>
     </div>
 </header>
@@ -121,19 +113,6 @@
         <h2>Abstract</h2>
         <div class="abstract-text">
             Composite image degradations, where rain, haze, low-light, and snow overlap spatially within a single frame, pose a fundamental challenge for unified restoration models. We identify two failure modes on such inputs. First, deterministic flow transport averages over feasible solutions, collapsing to over-smoothed predictions. Second, image-level expert routing yields a selectivity ratio of only 1.2&times;, assigning near-uniform capacity and under-specializing on localized distortions. Building upon these observations, we propose a <strong>Factorized Flow-Driven Network (F<sup>2</sup>D-Net)</strong>, a stochastic transport framework that factorizes the restoration velocity field into a shared backbone and degradation-specific expert increments assembled at every pixel via learned spatial gating. The core mechanism is a state-dependent multiplicative noise whose magnitude scales with the local residual to the clean target: large far from the solution to explore diverse reconstructions, vanishing upon convergence to preserve fine details. This formulation admits closed-form log-normal transitions, enabling single-step inference at feed-forward speed. On CDD-11, F<sup>2</sup>D-Net achieves the best structural and perceptual quality across all complexity tiers with 10.3&times; expert selectivity, and remains competitive on standard three-task and five-task all-in-one benchmarks.
-        </div>
-    </div>
-</section>
-
-<!-- Highlights -->
-<section style="padding-top:0">
-    <div class="container">
-        <h2>Highlights</h2>
-        <div class="highlights">
-            <div class="highlight-card"><div class="icon">&#128269;</div><p><strong>Failure Mode Analysis.</strong> Two failure modes of existing all-in-one restoration on composite degradations are identified: velocity averaging and under-specialized routing.</p></div>
-            <div class="highlight-card"><div class="icon">&#9881;&#65039;</div><p><strong>Factorized Velocity Field.</strong> A spatially gated mixture-of-experts decomposes the restoration flow into shared and degradation-specific components.</p></div>
-            <div class="highlight-card"><div class="icon">&#9889;</div><p><strong>Single-Step Inference.</strong> State-dependent multiplicative noise admits closed-form log-normal transitions for feed-forward-speed sampling.</p></div>
-            <div class="highlight-card"><div class="icon">&#127942;</div><p><strong>State-of-the-Art Quality.</strong> Best structural and perceptual quality on CDD-11 with 10.3&times; expert selectivity.</p></div>
         </div>
     </div>
 </section>
@@ -209,44 +188,25 @@
             </div>
 
         </div>
-    </div>
-</section>
 
-<!-- Citation -->
-<section>
-    <div class="container">
-        <h2>Citation</h2>
-        <div class="bibtex-block">
-            <button class="copy-btn" onclick="copyBib()"><i class="fa-regular fa-copy"></i> Copy</button>
-<pre>@article{su2025f2dnet,
-  title={Factorized Stochastic Transport for Composite
-         Degradation Image Restoration},
-  author={Su, Xin and Chao, Jianshu and Shen, Huifang
-          and Chen, Anqi and Gao, Yuting},
-  journal={Pattern Recognition},
-  year={2025}
-}</pre>
+        <!-- Method Comparison Strips -->
+        <div class="compare-section">
+            <h3>Method Comparisons on CDD-11</h3>
+            <div class="compare-strip"><img src="static/demo/snow_compare.jpg" alt="Snow comparison: Input / AirNet / PromptIR / MoCE-IR / Ours / GT"></div>
+            <div class="compare-strip"><img src="static/demo/low_haze_compare.jpg" alt="Low-light+Haze comparison"></div>
+            <div class="compare-strip"><img src="static/demo/haze_snow_compare.jpg" alt="Haze+Snow comparison"></div>
+            <div class="compare-strip"><img src="static/demo/low_haze_rain_compare.jpg" alt="Low-light+Haze+Rain comparison"></div>
         </div>
     </div>
 </section>
 
 <footer>
     <div class="container">
-        <p>F<sup>2</sup>D-Net &copy; 2025 &middot; <a href="https://github.com/sxvvv/f2net">GitHub</a></p>
-        <p style="margin-top:4px">Template inspired by <a href="https://nerfies.github.io/">Nerfies</a></p>
+        <p>This website is borrowed from <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a>.</p>
     </div>
 </footer>
 
 <script>
-function copyBib(){
-    var b=document.querySelector(".bibtex-block pre").textContent;
-    navigator.clipboard.writeText(b).then(function(){
-        var t=document.querySelector(".copy-btn");
-        t.innerHTML="Copied!";
-        setTimeout(function(){t.innerHTML='<i class="fa-regular fa-copy"></i> Copy'},2e3);
-    });
-}
-
 // ── Before/After Slider ──
 document.querySelectorAll(".comparison-slider").forEach(function(el){
     var before=el.dataset.before, after=el.dataset.after;
@@ -261,7 +221,6 @@ document.querySelectorAll(".comparison-slider").forEach(function(el){
     function setPos(x){
         var rect=el.getBoundingClientRect();
         var pct=Math.max(0,Math.min(1,(x-rect.left)/rect.width));
-        // after image is full, before image clips from pct to right
         imgBefore.style.clipPath="inset(0 0 0 "+pct*100+"%)";
         handle.style.left=pct*100+"%";
     }
