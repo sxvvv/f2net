@@ -1,9 +1,5 @@
 # utils/factor_utils.py
 # Degradation factor parsing and manipulation for CDD-11.
-#
-# Four atomic degradation types: low-light (L), haze (H), rain (R), snow (S).
-# A composite degradation name is formed by joining active factors with '_',
-# e.g. "low_haze_rain" denotes simultaneous low-light + haze + rain.
 
 import torch
 
