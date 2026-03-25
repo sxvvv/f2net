@@ -1,8 +1,5 @@
 # utils/lmdb_dataset.py
 # LMDB-backed dataset for CDD-11 and general image restoration benchmarks.
-#
-# Each LMDB entry is a pickled dict:
-#   {"LQ": np.ndarray (H,W,3 uint8), "GT": np.ndarray, "deg_name": str}
 
 import os
 import pickle
