@@ -1,20 +1,5 @@
-# train_v3.py
-# 基于FoD的增广流匹配图像恢复训练脚本 (v3: 全策略版)
-#
-# v3 核心策略：
-#   1. 渐进式 patch size：384→512→720，前期快速收敛，后期精细优化
-#   2. 退化感知动态加权：根据验证集 per-deg PSNR 自动调高弱项 loss 权重
-#   3. 验证集驱动：best model 自动保存 + early stopping + 完整 per-deg 评估
-#   4. Charbonnier loss + 频域损失：对 PSNR 更友好
-#   5. finetune 模式：只加载权重，重置 optimizer/scheduler
-#
-# 从头训练示例 (推荐):
-#   CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train_v3.py \
-#       --lmdb-path /data/train.lmdb --test-lmdb-path /data/test.lmdb \
-#       --progressive-patch "0:384:16,150000:512:12,350000:720:8" \
-#       --loss-type charbonnier --lambda-freq 0.05 \
-#       --deg-reweight --deg-reweight-target 29.0 \
-#       --niter 600000 --patience 20 --eval-every 5000
+#!/usr/bin/env python3
+# train_fod.py
 
 import torch
 import torch.distributed as dist
@@ -41,10 +26,10 @@ from utils.ema import EMA
 
 
 # ============================================================================
-# 工具函数
+# Utilities
 # ============================================================================
 def get_cosine_schedule_with_warmup(optimizer, warmup_steps, total_steps, eta_min=1e-6):
-    """带Warmup的余弦退火调度器"""
+    """Cosine-annealing LR schedule with linear warmup."""
     def lr_lambda(step):
         if step < warmup_steps:
             return float(step) / float(max(1, warmup_steps))
@@ -69,6 +54,7 @@ def setup_logging(rank: int, log_dir: str):
 
 
 def deg_name_to_labels(deg_names: list, device) -> torch.Tensor:
+    """Convert a batch of degradation name strings to multi-hot label vectors."""
     B = len(deg_names)
     labels = torch.zeros(B, 4, device=device)
     for i, name in enumerate(deg_names):
@@ -80,6 +66,11 @@ def deg_name_to_labels(deg_names: list, device) -> torch.Tensor:
 
 
 def gating_target_from_labels(labels, t_norm):
+    """Compute time-dependent gating targets for expert routing supervision.
+
+    Early timesteps emphasise rain/snow experts; late timesteps emphasise
+    low-light/haze experts, loosely following the degradation removal order.
+    """
     B = labels.shape[0]
     device, dtype = labels.device, labels.dtype
     mod_early = torch.tensor([0.3, 0.3, 1.0, 1.0], device=device, dtype=dtype)
@@ -96,231 +87,79 @@ def gating_target_from_labels(labels, t_norm):
 
 
 # ============================================================================
-# 动态因子映射 (支持自定义退化任务, 如 3-task 去噪/去雾/去雨)
+# Balanced samplers
 # ============================================================================
+def build_or_load_index_cache(train_set, cache_path, rank=0, target_degs=None):
+    """Build (or load) an index cache that classifies samples by degradation type.
 
-# 退化名称 -> 因子的子串匹配规则
-# 键为子串 (小写匹配), 值为因子名
-_DEG_SUBSTRING_MAP = {
-    "noise": "noise", "denois": "noise", "gaussian": "noise", "sigma": "noise",
-    "haze": "haze", "dehaz": "haze", "fog": "haze",
-    "rain": "rain", "derain": "rain",
-    "snow": "snow", "desnow": "snow",
-    "low": "low", "dark": "low", "lowlight": "low",
-    "blur": "blur", "deblur": "blur",
-    "jpeg": "jpeg", "compress": "jpeg",
-}
-
-
-def map_deg_name_to_factor_idx(deg_name, factors):
+    The cache enables balanced sampling during training, ensuring adequate
+    representation of underrepresented degradation categories.
     """
-    将 deg_name 映射到 factors 列表中的索引。
-    使用子串匹配，支持多种命名格式。
-
-    Args:
-        deg_name: 退化名称字符串, 如 "denoise_25", "dehaze", "rain100L"
-        factors: 因子列表, 如 ["noise", "haze", "rain"]
-
-    Returns:
-        int: 因子索引, 未匹配返回 -1
-    """
-    if not deg_name:
-        return -1
-    deg_lower = deg_name.lower().strip()
-
-    # 先尝试精确匹配因子名
-    for idx, factor in enumerate(factors):
-        if factor.lower() == deg_lower:
-            return idx
-
-    # 通过子串规则映射到因子名，再查索引
-    factor_name_lower = {f.lower(): i for i, f in enumerate(factors)}
-    for substr, mapped_factor in _DEG_SUBSTRING_MAP.items():
-        if substr in deg_lower:
-            if mapped_factor.lower() in factor_name_lower:
-                return factor_name_lower[mapped_factor.lower()]
-
-    # 最后尝试: 因子名是否为 deg_name 的子串
-    for idx, factor in enumerate(factors):
-        if factor.lower() in deg_lower:
-            return idx
-
-    return -1
-
-
-def deg_name_to_labels_dynamic(deg_names, device, factors, num_factors):
-    """
-    动态版 deg_name_to_labels，支持任意因子列表。
-    每个样本根据其 deg_name 映射到对应因子位置设为 1。
-
-    Returns:
-        (B, num_factors) tensor
-    """
-    B = len(deg_names)
-    labels = torch.zeros(B, num_factors, device=device)
-    for i, name in enumerate(deg_names):
-        if name:
-            idx = map_deg_name_to_factor_idx(name, factors)
-            if 0 <= idx < num_factors:
-                labels[i, idx] = 1.0
-    return labels
-
-
-def gating_target_from_labels_dynamic(labels, t_norm, num_factors):
-    """
-    动态版 gating_target，根据任务数量生成时间依赖的门控先验。
-
-    对于 3-task (noise, haze, rain):
-    - 早期 (t<0.33): 强调结构恢复 (haze, rain 权重高)
-    - 中期 (0.33<t<0.67): 均衡
-    - 后期 (t>0.67): 强调细节恢复 (noise 权重高)
-    """
-    B = labels.shape[0]
-    device, dtype = labels.device, labels.dtype
-
-    if num_factors == 3:
-        # [noise, haze, rain]
-        mod_early = torch.tensor([0.3, 1.0, 1.0], device=device, dtype=dtype)
-        mod_mid   = torch.tensor([0.6, 0.8, 0.6], device=device, dtype=dtype)
-        mod_late  = torch.tensor([1.0, 0.5, 0.3], device=device, dtype=dtype)
-    elif num_factors == 4:
-        mod_early = torch.tensor([0.3, 0.3, 1.0, 1.0], device=device, dtype=dtype)
-        mod_mid   = torch.tensor([0.3, 1.0, 0.5, 0.5], device=device, dtype=dtype)
-        mod_late  = torch.tensor([1.0, 0.5, 0.3, 0.3], device=device, dtype=dtype)
-    else:
-        # 通用: 均匀
-        mod_early = torch.ones(num_factors, device=device, dtype=dtype)
-        mod_mid   = torch.ones(num_factors, device=device, dtype=dtype)
-        mod_late  = torch.ones(num_factors, device=device, dtype=dtype)
-
-    tt = t_norm.view(B, 1)
-    NF = num_factors
-    time_mod = torch.where(
-        tt < 0.33, mod_early.view(1, NF),
-        torch.where(tt < 0.67, mod_mid.view(1, NF), mod_late.view(1, NF))
-    )
-    alpha = labels * time_mod
-    alpha = alpha / (alpha.sum(dim=1, keepdim=True) + 1e-8)
-    return alpha
-
-
-def build_dynamic_present_and_m(deg_names, device, factors, num_factors, H, W):
-    """
-    根据 deg_name 构建动态的 present 和 m_gt tensor。
-
-    Returns:
-        present: (B, num_factors) tensor
-        m_gt: (B, num_factors, H, W) tensor
-    """
-    B = len(deg_names)
-    present = torch.zeros(B, num_factors, device=device)
-    for i, name in enumerate(deg_names):
-        if name:
-            idx = map_deg_name_to_factor_idx(name, factors)
-            if 0 <= idx < num_factors:
-                present[i, idx] = 1.0
-    # m_gt: 简化版，存在的因子全图为 1
-    m_gt = present.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, H, W).contiguous()
-    return present, m_gt
-
-
-def print_deg_name_distribution(dataset, factors, max_scan=500):
-    """
-    轻量扫描数据集 deg_name 分布（不加载图片数据，仅读 LMDB key/deg_name）。
-    """
-    from collections import Counter
-    deg_counter = Counter()
-    mapped = Counter()
-    unmapped_set = set()
-
-    # 优先走 LMDB 轻量路径：只读 deg_name 字段，不解码图片
-    if hasattr(dataset, '_ensure_env') and hasattr(dataset, 'keys'):
-        import pickle as _pkl
-        n = min(len(dataset.keys), max_scan)
-        try:
-            dataset._ensure_env()
-            with dataset.env.begin(write=False) as txn:
-                for i in range(n):
-                    raw = txn.get(dataset.keys[i].encode())
-                    if raw is None:
-                        continue
-                    data = _pkl.loads(raw)
-                    dn = str(data.get('deg_name', data.get('degradation', '')))
-                    if dn:
-                        deg_counter[dn] += 1
-                        idx = map_deg_name_to_factor_idx(dn, factors)
-                        if idx >= 0:
-                            mapped[factors[idx]] += 1
-                        else:
-                            unmapped_set.add(dn)
-        except Exception as e:
-            print(f"[DegName] LMDB scan failed: {e}, falling back to dataset[i]")
-            deg_counter.clear(); mapped.clear(); unmapped_set.clear()
-            n = min(len(dataset), min(max_scan, 50))
-            for i in range(n):
-                try:
-                    sample = dataset[i]
-                    dn = sample.get("deg_name", "")
-                    if isinstance(dn, str) and dn:
-                        deg_counter[dn] += 1
-                        idx = map_deg_name_to_factor_idx(dn, factors)
-                        if idx >= 0:
-                            mapped[factors[idx]] += 1
-                        else:
-                            unmapped_set.add(dn)
-                except Exception:
-                    break
-    else:
-        # 非 LMDB 数据集，少量采样
-        n = min(len(dataset), min(max_scan, 50))
-        for i in range(n):
-            try:
-                sample = dataset[i]
-                dn = sample.get("deg_name", "")
-                if isinstance(dn, str) and dn:
-                    deg_counter[dn] += 1
-                    idx = map_deg_name_to_factor_idx(dn, factors)
-                    if idx >= 0:
-                        mapped[factors[idx]] += 1
-                    else:
-                        unmapped_set.add(dn)
-            except Exception:
-                break
-
-    print(f"\n[DegName Distribution] Scanned {sum(deg_counter.values())} samples:")
-    for dn, cnt in deg_counter.most_common():
-        idx = map_deg_name_to_factor_idx(dn, factors)
-        tag = f"-> {factors[idx]}" if idx >= 0 else "-> UNMAPPED"
-        print(f"  {dn:<30s} count={cnt:>5d}  {tag}")
-    if unmapped_set:
-        print(f"\n  WARNING: {len(unmapped_set)} unmapped deg_names: {sorted(unmapped_set)[:10]}")
-    print(f"  Factor totals: {dict(mapped)}\n")
-
-
-# ============================================================================
-# 均衡采样器
-# ============================================================================
-def build_or_load_index_cache(train_set, cache_path, rank=0):
     if os.path.isfile(cache_path):
         if rank == 0:
             print(f"[IndexCache] Loading {cache_path}")
         with open(cache_path, "rb") as f:
-            return pickle.load(f)
+            cache = pickle.load(f)
+            if target_degs:
+                need_rebuild = False
+                for deg in target_degs:
+                    if f"{deg}_indices" not in cache:
+                        need_rebuild = True
+                        break
+                if need_rebuild:
+                    if rank == 0:
+                        print(f"[IndexCache] Cache missing target degs, rebuilding...")
+                else:
+                    if dist.is_available() and dist.is_initialized():
+                        dist.barrier()
+                    return cache
     if rank == 0:
         print(f"[IndexCache] Building cache -> {cache_path}")
         low_idx, nonlow_idx = [], []
+        target_indices = {}
+        if target_degs:
+            for deg in target_degs:
+                target_indices[deg] = []
+
         for i in range(len(train_set)):
-            sample = train_set[i]
-            dn = sample.get("deg_name", None)
-            if dn is not None and "low" in str(dn).lower():
-                low_idx.append(i)
-            else:
+            try:
+                sample = train_set[i]
+                dn = sample.get("deg_name", None) if isinstance(sample, dict) else None
+                if dn is not None:
+                    dn_str = str(dn).lower()
+                    if target_degs:
+                        for deg in target_degs:
+                            deg_lower = deg.lower()
+                            if deg_lower == dn_str or deg_lower in dn_str or dn_str in deg_lower:
+                                if deg not in target_indices:
+                                    target_indices[deg] = []
+                                target_indices[deg].append(i)
+                                break
+                    if "low" in dn_str:
+                        low_idx.append(i)
+                    else:
+                        nonlow_idx.append(i)
+                else:
+                    nonlow_idx.append(i)
+            except Exception as e:
+                if rank == 0 and i < 10:
+                    print(f"Warning: Failed to read sample {i}: {e}")
                 nonlow_idx.append(i)
+
         cache = {"low_indices": low_idx, "nonlow_indices": nonlow_idx}
+        if target_degs:
+            for deg in target_degs:
+                cache[f"{deg}_indices"] = target_indices.get(deg, [])
+
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         with open(cache_path, "wb") as f:
             pickle.dump(cache, f)
+
         print(f"[IndexCache] low={len(low_idx)} nonlow={len(nonlow_idx)} total={len(train_set)}")
+        if target_degs:
+            for deg in target_degs:
+                print(f"[IndexCache] {deg}={len(target_indices.get(deg, []))}")
+
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
     with open(cache_path, "rb") as f:
@@ -328,6 +167,7 @@ def build_or_load_index_cache(train_set, cache_path, rank=0):
 
 
 class CachedBalancedSampler(Sampler):
+    """Balanced sampler with configurable low-light / non-low-light ratio."""
     def __init__(self, low_indices, nonlow_indices,
                  low_ratio, total_size,
                  num_replicas=1, rank=0, shuffle=True, seed=0):
@@ -375,8 +215,96 @@ class CachedBalancedSampler(Sampler):
         return iter(indices)
 
 
+class MultiDegBalancedSampler(Sampler):
+    """Weighted sampler supporting per-degradation-type sampling ratios.
+
+    Args:
+        cache: Index cache dict from ``build_or_load_index_cache``.
+        deg_ratios: {deg_name: ratio} for targeted oversampling.
+        total_size: Total samples per epoch.
+    """
+    def __init__(self, cache, deg_ratios, total_size,
+                 num_replicas=1, rank=0, shuffle=True, seed=0):
+        self.cache = cache
+        self.deg_ratios = dict(deg_ratios) if deg_ratios else {}
+        self.total_size = int(total_size)
+        self.num_replicas = int(num_replicas)
+        self.rank = int(rank)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.epoch = 0
+        assert self.total_size > 0
+        self.num_samples = math.ceil(self.total_size / self.num_replicas)
+
+        for deg in self.deg_ratios.keys():
+            key = f"{deg}_indices"
+            if key not in cache:
+                print(f"Warning: {key} not found in cache, will use empty list")
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)
+
+    def __len__(self):
+        return self.num_samples
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+
+        def draw(src, count):
+            if count == 0 or len(src) == 0:
+                return []
+            ridx = torch.randint(0, len(src), (count,), generator=g).tolist()
+            return [src[j] for j in ridx]
+
+        # Normalise ratios if they exceed 1.0
+        total_ratio = sum(self.deg_ratios.values())
+        if total_ratio > 1.0:
+            for deg in self.deg_ratios:
+                self.deg_ratios[deg] /= total_ratio
+
+        indices = []
+        used_indices = set()
+
+        # Priority sampling for target degradation types
+        for deg, ratio in self.deg_ratios.items():
+            key = f"{deg}_indices"
+            deg_indices = self.cache.get(key, [])
+            if len(deg_indices) > 0:
+                n_samples = int(self.total_size * ratio)
+                sampled = draw(deg_indices, n_samples)
+                indices.extend(sampled)
+                used_indices.update(sampled)
+
+        # Fill the remainder from all samples
+        remaining_ratio = 1.0 - sum(self.deg_ratios.values())
+        if remaining_ratio > 0.01:
+            all_indices = self.cache.get("low_indices", []) + self.cache.get("nonlow_indices", [])
+            available_indices = [i for i in all_indices if i not in used_indices]
+            n_remaining = self.total_size - len(indices)
+            if n_remaining > 0 and len(available_indices) > 0:
+                remaining_samples = draw(available_indices, min(n_remaining, len(available_indices)))
+                indices.extend(remaining_samples)
+
+        # Pad with random samples if still short
+        if len(indices) < self.total_size:
+            all_indices = self.cache.get("low_indices", []) + self.cache.get("nonlow_indices", [])
+            if len(all_indices) > 0:
+                n_needed = self.total_size - len(indices)
+                indices.extend(draw(all_indices, n_needed))
+
+        indices = indices[:self.total_size]
+        if self.shuffle:
+            perm = torch.randperm(len(indices), generator=g).tolist()
+            indices = [indices[i] for i in perm]
+
+        # DDP shard
+        indices = indices[self.rank:self.total_size:self.num_replicas]
+        return iter(indices)
+
+
 class RepeatDataset(torch.utils.data.Dataset):
-    """Repeat a dataset N times (virtual expansion)."""
+    """Virtually repeat a dataset N times (useful for fine-tuning on small sets)."""
     def __init__(self, dataset, repeats: int):
         self.dataset = dataset
         self.repeats = max(1, int(repeats))
@@ -389,14 +317,14 @@ class RepeatDataset(torch.utils.data.Dataset):
 
 
 # ============================================================================
-# 渐进式 patch size 解析
+# Progressive patch size
 # ============================================================================
 def parse_progressive_patch(spec_str):
-    """
-    解析渐进式 patch size 配置。
-    格式: "step1:patch1:bs1,step2:patch2:bs2,..."
-    例如: "0:384:16,150000:512:12,350000:720:8"
-    返回: [(0, 384, 16), (150000, 512, 12), (350000, 720, 8)]
+    """Parse a progressive patch-size schedule string.
+
+    Format: "step1:patch1:bs1,step2:patch2:bs2,..."
+    Example: "0:384:16,150000:512:12,350000:720:8"
+    Returns: [(0, 384, 16), (150000, 512, 12), (350000, 720, 8)]
     """
     if not spec_str:
         return []
@@ -406,13 +334,13 @@ def parse_progressive_patch(spec_str):
         if len(tokens) == 3:
             stages.append((int(tokens[0]), int(tokens[1]), int(tokens[2])))
         elif len(tokens) == 2:
-            stages.append((int(tokens[0]), int(tokens[1]), -1))  # -1 = 不改 bs
+            stages.append((int(tokens[0]), int(tokens[1]), -1))
     stages.sort(key=lambda x: x[0])
     return stages
 
 
 def get_current_patch_config(step, stages):
-    """根据当前 step 返回 (patch_size, batch_size) 或 None"""
+    """Return (patch_size, batch_size) for the current training step."""
     if not stages:
         return None, None
     result = stages[0]
@@ -423,45 +351,43 @@ def get_current_patch_config(step, stages):
 
 
 # ============================================================================
-# 退化感知动态加权
+# Degradation-aware dynamic loss reweighting
 # ============================================================================
 class DegradationReweighter:
-    """
-    根据验证集 per-degradation PSNR 动态调整每类退化的 loss 权重。
-    PSNR 越低的退化类型，训练时 loss 权重越高。
+    """Dynamically adjust per-degradation loss weights based on validation PSNR.
+
+    Degradation types with lower PSNR receive higher training weights,
+    smoothed with exponential moving average across evaluation rounds.
     """
     def __init__(self, target_psnr=29.0, max_weight=4.0, min_weight=0.5, momentum=0.8):
         self.target_psnr = target_psnr
         self.max_weight = max_weight
         self.min_weight = min_weight
         self.momentum = momentum
-        self.deg_weights = {}  # deg_name -> weight
+        self.deg_weights = {}
 
     def update(self, per_deg_results):
-        """
-        per_deg_results: dict of {deg_name: {"psnr": float, "ssim": float, "cnt": int}}
+        """Update weights from per-degradation evaluation results.
+
+        Args:
+            per_deg_results: {deg_name: {"psnr": float, "ssim": float, "cnt": int}}
         """
         if not per_deg_results:
             return
 
-        # 计算每类退化距离目标的 gap
         gaps = {}
         for deg, info in per_deg_results.items():
-            gap = max(0, self.target_psnr - info["psnr"])
-            gaps[deg] = gap
+            gaps[deg] = max(0, self.target_psnr - info["psnr"])
 
         max_gap = max(gaps.values()) if gaps else 1.0
         if max_gap < 0.1:
             max_gap = 1.0
 
-        # gap 越大 -> weight 越高
         new_weights = {}
         for deg, gap in gaps.items():
-            # 线性映射: gap=0 -> min_weight, gap=max_gap -> max_weight
             w = self.min_weight + (self.max_weight - self.min_weight) * (gap / max_gap)
             new_weights[deg] = w
 
-        # EMA 平滑
         for deg, w in new_weights.items():
             if deg in self.deg_weights:
                 self.deg_weights[deg] = self.momentum * self.deg_weights[deg] + (1 - self.momentum) * w
@@ -469,39 +395,31 @@ class DegradationReweighter:
                 self.deg_weights[deg] = w
 
     def get_sample_weights(self, deg_names, device):
-        """
-        根据 batch 中每个样本的退化类型返回权重 tensor (B,)
-        """
+        """Return per-sample loss weights (B,) based on degradation type."""
         B = len(deg_names)
         weights = torch.ones(B, device=device)
         for i, name in enumerate(deg_names):
             if isinstance(name, str) and name in self.deg_weights:
                 weights[i] = self.deg_weights[name]
-        # 归一化使均值为 1
         weights = weights / (weights.mean() + 1e-8)
         return weights
 
     def get_status_str(self):
         if not self.deg_weights:
             return "no weights yet"
-        parts = []
-        for deg in sorted(self.deg_weights.keys()):
-            parts.append(f"{deg}={self.deg_weights[deg]:.2f}")
+        parts = [f"{deg}={self.deg_weights[deg]:.2f}" for deg in sorted(self.deg_weights)]
         return " ".join(parts)
 
 
 # ============================================================================
-# 完整验证
+# Validation
 # ============================================================================
 @torch.no_grad()
 def evaluate_full(model, loader, device, ema=None, max_samples=0,
                   num_steps=10, sample_type="MC", use_tta=False,
                   use_amp=False, amp_dtype=torch.bfloat16,
                   one_step=False):
-    """
-    评估。one_step=True 时用单步推理，速度快 ~10x。
-    max_samples>0 时只评估前 N 个 batch。
-    """
+    """Full validation loop. Returns (avg_psnr, avg_ssim, per_deg_dict)."""
     model.eval()
     psnr_sum, ssim_sum, n = 0.0, 0.0, 0
     per_deg = defaultdict(lambda: {"psnr": 0.0, "ssim": 0.0, "cnt": 0})
@@ -533,7 +451,7 @@ def evaluate_full(model, loader, device, ema=None, max_samples=0,
                     x_hat = fod_inference(net, y, num_steps=num_steps,
                                           sample_type=sample_type, use_tta=use_tta)
 
-            # 指标计算强制 float32，防止 bf16 精度不足导致 PSNR 异常
+            # Force float32 for metric computation (bf16 can cause PSNR anomalies)
             psnr_val = psnr_y_torch(x_hat.float(), x.float(), data_range=2.0)
             ssim_val = ssim_torch(x_hat.float(), x.float(), data_range=2.0)
 
@@ -571,38 +489,34 @@ def evaluate_full(model, loader, device, ema=None, max_samples=0,
 # Main
 # ============================================================================
 def main():
-    parser = argparse.ArgumentParser(description="FoD增广流匹配训练 (v3: 全策略版)")
+    parser = argparse.ArgumentParser(description="F2D-Net training")
 
-    # 数据
+    # Data
     parser.add_argument("--lmdb-path", type=str, required=True)
     parser.add_argument("--test-lmdb-path", type=str, default=None)
     parser.add_argument("--patch-size", type=int, default=720)
     parser.add_argument("--num-workers", type=int, default=8)
 
-    # 训练
+    # Training
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--grad-accum", type=int, default=1,
-                        help="梯度累积步数 (effective_batch = batch_size * grad_accum)")
+                        help="Gradient accumulation steps (effective_batch = batch_size * grad_accum)")
     parser.add_argument("--niter", type=int, default=600_000)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--beta2", type=float, default=0.99)
     parser.add_argument("--seed", type=int, default=0)
 
-    # 模型
+    # Model
     parser.add_argument("--base-ch", type=int, default=64)
     parser.add_argument("--emb-dim", type=int, default=256)
+    parser.add_argument("--num-experts", type=int, default=4,
+                        help="Number of degradation-specific expert adapters (M)")
     parser.add_argument("--adapter-dim", type=int, default=128)
     parser.add_argument("--num-timesteps", type=int, default=100)
     parser.add_argument("--model-type", type=str, default="SFLOW",
                         choices=["FINAL_X", "FLOW", "SFLOW"])
 
-    # 动态因子 / 多任务
-    parser.add_argument("--num-experts", type=int, default=4,
-                        help="专家数量 (3-task: 3, CDD-11: 4)")
-    parser.add_argument("--factors", type=str, default="",
-                        help="逗号分隔的因子列表, 如 'noise,haze,rain'; 空则使用默认 CDD-11 4因子")
-
-    # 损失权重
+    # Loss weights
     parser.add_argument("--lambda-cls", type=float, default=0.01)
     parser.add_argument("--lambda-balance", type=float, default=0.01)
     parser.add_argument("--lambda-w", type=float, default=0.1)
@@ -610,70 +524,64 @@ def main():
     parser.add_argument("--lambda-recon", type=float, default=0.1)
     parser.add_argument("--lambda-alpha", type=float, default=0.02)
 
-    # 困难样本加权
+    # Hard-sample weighting
     parser.add_argument("--use-hard-sample-weighting", action="store_true", default=False)
     parser.add_argument("--hard-sample-psnr-threshold", type=float, default=26.0)
     parser.add_argument("--hard-sample-weight-factor", type=float, default=2.0)
 
-    # 推理设置
+    # Inference
     parser.add_argument("--eval-num-steps", type=int, default=10)
     parser.add_argument("--sample-type", type=str, default="MC", choices=["EM", "MC", "NMC"])
 
-    # Warmup
+    # LR schedule
     parser.add_argument("--warmup-steps", type=int, default=5000)
 
-    # ====== v3 新增 ======
-    # 微调
+    # Fine-tuning
     parser.add_argument("--finetune", action="store_true", default=False,
-                        help="微调模式：只加载权重+EMA，重置optimizer/scheduler")
+                        help="Fine-tune mode: load weights + EMA, reset optimiser/scheduler")
 
-    # best model + early stopping
+    # Early stopping
     parser.add_argument("--patience", type=int, default=0,
-                        help="Early stopping: 连续N次评估不涨则停止 (0=禁用)")
+                        help="Early stopping patience (0 = disabled)")
     parser.add_argument("--eval-max-samples", type=int, default=0,
-                        help="评估时最多样本数 (0=全部)")
+                        help="Max samples per evaluation (0 = all)")
     parser.add_argument("--eval-one-step", action="store_true", default=False,
-                        help="评估时用单步推理 (快~10x，趋势一致，推荐训练中使用)")
+                        help="Use single-step inference during eval (~10× faster)")
 
-    # Charbonnier + 频域
+    # Charbonnier + frequency loss
     parser.add_argument("--loss-type", type=str, default="l1", choices=["l1", "charbonnier"])
     parser.add_argument("--charbonnier-eps", type=float, default=1e-3)
     parser.add_argument("--lambda-freq", type=float, default=0.0)
 
-    # 渐进式 patch size
+    # Progressive patch size
     parser.add_argument("--progressive-patch", type=str, default="",
-                        help="渐进式patch: 'step:patch:bs,...' 例如 '0:384:16,150000:512:12,350000:720:8'")
+                        help="Progressive schedule: 'step:patch:bs,...' "
+                             "e.g. '0:384:16,150000:512:12,350000:720:8'")
 
-    # 退化感知动态加权
+    # Degradation-aware reweighting
     parser.add_argument("--deg-reweight", action="store_true", default=False,
-                        help="启用退化感知动态加权 (根据验证集per-deg PSNR自动调权)")
-    parser.add_argument("--deg-reweight-target", type=float, default=29.0,
-                        help="目标PSNR，低于此值的退化类型会被加权")
+                        help="Enable degradation-aware dynamic loss reweighting")
+    parser.add_argument("--deg-reweight-target", type=float, default=29.0)
     parser.add_argument("--deg-reweight-max", type=float, default=4.0)
     parser.add_argument("--deg-reweight-min", type=float, default=0.5)
 
-    # ====== v4 新增：内置两阶段预增强 ======
-    parser.add_argument("--use-brightness-enhancer", action="store_true", default=True,
-                        help="启用内置亮度预增强模块 (两阶段)")
+    # Brightness pre-enhancer
+    parser.add_argument("--use-brightness-enhancer", action="store_true", default=True)
     parser.add_argument("--no-brightness-enhancer", dest="use_brightness_enhancer", action="store_false")
-    parser.add_argument("--brightness-enhancer-ch", type=int, default=64,
-                        help="预增强模块通道数")
-    parser.add_argument("--brightness-enhancer-blocks", type=int, default=6,
-                        help="预增强模块残差块数量")
+    parser.add_argument("--brightness-enhancer-ch", type=int, default=64)
+    parser.add_argument("--brightness-enhancer-blocks", type=int, default=6)
     parser.add_argument("--brightness-threshold", type=float, default=0.3,
-                        help="低光检测阈值 (0~1, 低于此值激活预增强)")
-    parser.add_argument("--freq-emb-dim", type=int, default=128,
-                        help="频率嵌入维度 (用于引导专家路由)")
-    parser.add_argument("--lambda-enhance", type=float, default=0.1,
-                        help="预增强损失权重")
-    # v5 新增：低光训练策略
-    parser.add_argument("--lowlight-boost", type=float, default=1.0,
-                        help="低光样本主损失加权倍数 (推荐 2.0~3.0)")
-    parser.add_argument("--enhance-warmup-steps", type=int, default=0,
-                        help="预增强模块热身步数 (热身期间 lambda_enhance *= 3)")
-    # ====== v3/v4 新增结束 ======
+                        help="Luminance threshold for pre-enhancement activation (0..1)")
+    parser.add_argument("--freq-emb-dim", type=int, default=128)
+    parser.add_argument("--lambda-enhance", type=float, default=0.1)
 
-    # 其他
+    # Low-light training strategy
+    parser.add_argument("--lowlight-boost", type=float, default=1.0,
+                        help="Loss weight multiplier for low-light samples (e.g. 2.0)")
+    parser.add_argument("--enhance-warmup-steps", type=int, default=0,
+                        help="Pre-enhancer warmup steps (higher lambda_enhance during warmup)")
+
+    # General
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--eval-every", type=int, default=5000)
     parser.add_argument("--save-every", type=int, default=20_000)
@@ -691,18 +599,24 @@ def main():
     parser.add_argument("--low-ratio", type=float, default=0.0)
     parser.add_argument("--index-cache", type=str, default=None)
 
-    # 测试集微调 (test-set fine-tuning)
+    # Targeted degradation oversampling
+    parser.add_argument("--target-degs", type=str, default=None,
+                        help="Comma-separated degradation types to oversample, "
+                             "e.g. 'low_haze_snow,low_haze_rain'")
+    parser.add_argument("--target-deg-ratios", type=str, default=None,
+                        help="Comma-separated sampling ratios (matching --target-degs)")
+
+    # Extra LMDB for fine-tuning
     parser.add_argument("--extra-lmdb", type=str, default=None,
-                        help="Extra LMDB path (e.g. test set) as primary fine-tune data")
+                        help="Additional LMDB path (e.g. test set) for fine-tuning")
     parser.add_argument("--extra-repeat", type=int, default=35,
-                        help="How many times to repeat the extra LMDB (default 35)")
+                        help="How many times to repeat the extra LMDB")
     parser.add_argument("--extra-is-train", type=lambda x: x.lower() in ('true', '1', 'yes'),
-                        default=True,
-                        help="Whether extra LMDB uses training augmentation (default True)")
+                        default=True)
 
     args = parser.parse_args()
 
-    # 分布式初始化
+    # ====== Distributed setup ======
     if "RANK" in os.environ:
         rank = int(os.environ["RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
@@ -729,12 +643,11 @@ def main():
             logger.info(f"Gradient accumulation: {args.grad_accum} steps, "
                         f"effective batch = batch_size * {args.grad_accum}")
 
-    # 解析渐进式 patch
     progressive_stages = parse_progressive_patch(args.progressive_patch)
     if rank == 0 and progressive_stages:
         logger.info(f"Progressive patch stages: {progressive_stages}")
 
-    # 退化感知动态加权器
+    # Degradation-aware reweighter
     deg_reweighter = None
     if args.deg_reweight:
         deg_reweighter = DegradationReweighter(
@@ -745,28 +658,12 @@ def main():
         if rank == 0:
             logger.info(f"DegReweight enabled: target={args.deg_reweight_target}")
 
-    # ====== 动态因子配置 ======
-    if args.factors:
-        custom_factors = [f.strip() for f in args.factors.split(",") if f.strip()]
-        num_factors = len(custom_factors)
-        # 强制 num_experts 与 factors 数量一致
-        args.num_experts = num_factors
-        use_dynamic_factors = True
-    else:
-        custom_factors = ["low", "haze", "rain", "snow"]  # 默认 CDD-11
-        num_factors = 4
-        use_dynamic_factors = False
-
-    if rank == 0:
-        logger.info(f"Factor mode: {'dynamic' if use_dynamic_factors else 'CDD-11'}, "
-                    f"factors={custom_factors}, num_experts={args.num_experts}")
-
-    # 模型
+    # ====== Model ======
     model = create_fod_model(
         base_ch=args.base_ch, emb_dim=args.emb_dim,
+        num_experts=args.num_experts,
         adapter_dim=args.adapter_dim, num_timesteps=args.num_timesteps,
         model_type=args.model_type,
-        num_experts=args.num_experts,
         use_brightness_enhancer=args.use_brightness_enhancer,
         brightness_enhancer_ch=args.brightness_enhancer_ch,
         brightness_enhancer_blocks=args.brightness_enhancer_blocks,
@@ -789,12 +686,12 @@ def main():
     if world_size > 1:
         model = DDP(model, device_ids=[device])
 
-    # 优化器
+    # ====== Optimiser ======
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr,
                             weight_decay=1e-4, betas=(0.9, args.beta2))
     scheduler = get_cosine_schedule_with_warmup(opt, args.warmup_steps, args.niter)
 
-    # ====== 数据加载 (支持渐进式 patch) ======
+    # ====== Data (supports progressive patch sizes) ======
     current_patch_size = args.patch_size
     current_batch_size = args.batch_size
 
@@ -807,7 +704,6 @@ def main():
 
     def build_loader(patch_size, batch_size):
         if args.extra_lmdb:
-            # --- 测试集微调模式 ---
             extra_ds = LMDBAllWeatherDataset(args.extra_lmdb, patch_size=patch_size,
                                              is_train=args.extra_is_train, readahead=args.readahead)
             repeated_extra = RepeatDataset(extra_ds, args.extra_repeat)
@@ -821,7 +717,34 @@ def main():
         else:
             ds = LMDBAllWeatherDataset(args.lmdb_path, patch_size=patch_size,
                                        is_train=True, readahead=args.readahead)
-            if args.low_ratio > 0:
+
+            target_degs = None
+            deg_ratios = {}
+            if args.target_degs:
+                target_degs = [d.strip() for d in args.target_degs.split(",") if d.strip()]
+                if args.target_deg_ratios:
+                    ratios = [float(r.strip()) for r in args.target_deg_ratios.split(",")]
+                    if len(ratios) == len(target_degs):
+                        deg_ratios = {deg: ratio for deg, ratio in zip(target_degs, ratios)}
+                    else:
+                        if rank == 0:
+                            logger.warning(f"target_deg_ratios length ({len(ratios)}) != "
+                                           f"target_degs length ({len(target_degs)}), using equal ratios")
+                        equal_ratio = 1.0 / len(target_degs) if target_degs else 0.0
+                        deg_ratios = {deg: equal_ratio for deg in target_degs}
+                else:
+                    equal_ratio = 1.0 / len(target_degs) if target_degs else 0.0
+                    deg_ratios = {deg: equal_ratio for deg in target_degs}
+
+            if target_degs and len(target_degs) > 0:
+                cache_path = args.index_cache or os.path.join(args.output_dir, "balanced_index_cache.pkl")
+                cache = build_or_load_index_cache(ds, cache_path, rank=rank, target_degs=target_degs)
+                if rank == 0:
+                    logger.info(f"[MultiDegSampler] target_degs={target_degs}, ratios={deg_ratios}")
+                smp = MultiDegBalancedSampler(
+                    cache, deg_ratios, total_size=len(ds),
+                    num_replicas=world_size, rank=rank, shuffle=True, seed=args.seed)
+            elif args.low_ratio > 0:
                 cache_path = args.index_cache or os.path.join(args.output_dir, "balanced_index_cache.pkl")
                 cache = build_or_load_index_cache(ds, cache_path, rank=rank)
                 smp = CachedBalancedSampler(
@@ -849,15 +772,8 @@ def main():
     if rank == 0:
         logger.info(f"Train samples: {len(dataset)}, patch={current_patch_size}, bs={current_batch_size}")
         os.makedirs(f"{args.output_dir}/ckpt", exist_ok=True)
-        # 打印 deg_name 分布和因子映射情况
-        if use_dynamic_factors:
-            try:
-                base_ds = dataset.datasets[0].dataset if hasattr(dataset, 'datasets') else dataset
-                print_deg_name_distribution(base_ds, custom_factors, max_scan=2000)
-            except Exception as e:
-                logger.warning(f"Could not scan deg_name distribution: {e}")
 
-    # ====== 恢复训练 ======
+    # ====== Resume ======
     step = 0
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bf16" else torch.float16
     scaler = torch.amp.GradScaler('cuda', enabled=args.amp and amp_dtype == torch.float16)
@@ -884,7 +800,7 @@ def main():
             if rank == 0:
                 logger.info(f"Resumed from step {step}")
 
-    # ====== 训练状态 ======
+    # ====== Training loop ======
     best_psnr = 0.0
     patience_counter = 0
     model.train()
@@ -895,15 +811,13 @@ def main():
     net = model.module if hasattr(model, 'module') else model
     num_timesteps = net.num_timesteps
     grad_accum = args.grad_accum
-    micro_step = 0  # 梯度累积计数器
-
-    # PLACEHOLDER_TRAINING_LOOP
+    micro_step = 0
 
     while step < args.niter:
         if sampler:
             sampler.set_epoch(epoch)
 
-        # ====== 渐进式 patch: 检查是否需要切换 ======
+        # Check for progressive patch-size transition
         if progressive_stages:
             new_ps, new_bs = get_current_patch_config(step, progressive_stages)
             if new_ps is not None and new_ps != current_patch_size:
@@ -922,55 +836,42 @@ def main():
             y = batch["LQ"].to(device)
             x = batch["GT"].to(device)
             deg_name = batch.get("deg_name", None)
+            present = batch.get("present", None)
+            m_gt = batch.get("m", None)
+            if present is not None:
+                present = present.to(device)
+            if m_gt is not None:
+                m_gt = m_gt.to(device)
 
             B = y.shape[0]
-            _, _, H, W = y.shape
             t = torch.randint(0, num_timesteps + 1, (B,), device=device)
 
-            # ====== 动态因子模式: 重新计算 present / m_gt / labels ======
-            if use_dynamic_factors and deg_name is not None:
-                present, m_gt = build_dynamic_present_and_m(
-                    deg_name, device, custom_factors, num_factors, H, W)
-                labels = deg_name_to_labels_dynamic(
-                    deg_name, device, custom_factors, num_factors)
-            else:
-                present = batch.get("present", None)
-                m_gt = batch.get("m", None)
-                if present is not None:
-                    present = present.to(device)
-                if m_gt is not None:
-                    m_gt = m_gt.to(device)
-                labels = None
-                if deg_name is not None:
-                    labels = deg_name_to_labels(deg_name, device)
-
-            # 检测低光样本（仅在启用亮度增强且因子包含 low 时）
+            # Detect low-light samples from degradation name
             is_lowlight = None
-            has_low_factor = not use_dynamic_factors or "low" in [f.lower() for f in custom_factors]
-            if deg_name is not None and args.use_brightness_enhancer and has_low_factor:
+            if deg_name is not None and args.use_brightness_enhancer:
                 is_lowlight = torch.zeros(B, dtype=torch.bool, device=device)
                 for i, name in enumerate(deg_name):
                     if isinstance(name, str) and "low" in name.lower():
                         is_lowlight[i] = True
 
-            # 门控目标
+            # Gating target (time-dependent expert prior)
             alpha_target = None
-            if args.lambda_alpha > 0 and labels is not None:
+            if args.lambda_alpha > 0 and deg_name is not None:
+                labels = deg_name_to_labels(deg_name, device)
                 t_norm = t.float() / num_timesteps
-                if use_dynamic_factors:
-                    alpha_target = gating_target_from_labels_dynamic(
-                        labels, t_norm, num_factors)
-                else:
-                    alpha_target = gating_target_from_labels(labels, t_norm)
+                alpha_target = gating_target_from_labels(labels, t_norm)
+            elif deg_name is not None:
+                labels = deg_name_to_labels(deg_name, device)
+            else:
+                labels = None
 
-            # ====== 梯度累积: 在每个累积周期开始时清零 ======
+            # Gradient accumulation: zero grads at start of each cycle
             if micro_step % grad_accum == 0:
                 opt.zero_grad(set_to_none=True)
 
-            # === enhance 预热调度 ===
+            # Pre-enhancer warmup: higher lambda_enhance during early training
             current_lambda_enhance = args.lambda_enhance
             if args.enhance_warmup_steps > 0 and step < args.enhance_warmup_steps:
-                # 热身期间加大 enhance 权重，让 enhancer 先学好
                 warmup_ratio = 1.0 - step / args.enhance_warmup_steps
                 current_lambda_enhance = args.lambda_enhance * (1.0 + 2.0 * warmup_ratio)
 
@@ -1018,15 +919,12 @@ def main():
                     lowlight_boost=args.lowlight_boost,
                 )
 
-            # ====== 退化感知动态加权 ======
+            # Degradation-aware reweighting
             if deg_reweighter and deg_reweighter.deg_weights and deg_name is not None:
                 deg_w = deg_reweighter.get_sample_weights(deg_name, device)
-                loss = loss * deg_w.mean()  # 标量缩放
+                loss = loss * deg_w.mean()
 
-            # ====== 梯度累积: loss 缩放 ======
             scaled_loss = loss / grad_accum
-
-            # PLACEHOLDER_BACKWARD_AND_EVAL
 
             if args.amp:
                 scaler.scale(scaled_loss).backward()
@@ -1035,7 +933,7 @@ def main():
 
             micro_step += 1
 
-            # ====== 梯度累积: 累积够了再更新 ======
+            # Accumulate, then update
             if micro_step % grad_accum == 0:
                 if args.amp:
                     scaler.unscale_(opt)
@@ -1052,9 +950,9 @@ def main():
                 log_count += 1
                 step += 1
             else:
-                continue  # 累积中，跳过日志/评估/保存
+                continue  # still accumulating
 
-            # 日志
+            # Logging
             if step % args.log_every == 0 and rank == 0:
                 avg_loss = running_loss / log_count
                 elapsed = time() - start_time
@@ -1088,9 +986,7 @@ def main():
                 log_count = 0
                 start_time = time()
 
-            # PLACEHOLDER_EVAL_AND_SAVE
-
-            # ====== 评估 ======
+            # Evaluation
             if step % args.eval_every == 0 and rank == 0 and test_loader:
                 psnr, ssim_v, per_deg = evaluate_full(
                     model, test_loader, device, ema,
@@ -1104,41 +1000,27 @@ def main():
                 eval_mode = "one-step" if args.eval_one_step else f"{args.eval_num_steps}-step {args.sample_type}"
                 logger.info(f">>> step={step:07d} PSNR={psnr:.4f} SSIM={ssim_v:.6f} ({eval_mode})")
 
-                # per-degradation
-                per_factor_psnr = defaultdict(lambda: {"psnr_sum": 0.0, "cnt": 0})
+                low_psnr_sum, low_cnt = 0.0, 0
+                nonlow_psnr_sum, nonlow_cnt = 0.0, 0
                 for deg in sorted(per_deg.keys()):
                     info = per_deg[deg]
                     logger.info(f"    {deg:<25s} PSNR={info['psnr']:.2f}  SSIM={info['ssim']:.4f}  (n={info['cnt']})")
-                    # 按因子分组统计
-                    if use_dynamic_factors:
-                        fidx = map_deg_name_to_factor_idx(deg, custom_factors)
-                        if fidx >= 0:
-                            fname = custom_factors[fidx]
-                            per_factor_psnr[fname]["psnr_sum"] += info['psnr'] * info['cnt']
-                            per_factor_psnr[fname]["cnt"] += info['cnt']
+                    if "low" in deg:
+                        low_psnr_sum += info['psnr'] * info['cnt']
+                        low_cnt += info['cnt']
                     else:
-                        if "low" in deg:
-                            per_factor_psnr["low"]["psnr_sum"] += info['psnr'] * info['cnt']
-                            per_factor_psnr["low"]["cnt"] += info['cnt']
-                        else:
-                            per_factor_psnr["non-low"]["psnr_sum"] += info['psnr'] * info['cnt']
-                            per_factor_psnr["non-low"]["cnt"] += info['cnt']
+                        nonlow_psnr_sum += info['psnr'] * info['cnt']
+                        nonlow_cnt += info['cnt']
 
-                # 打印 per-factor 平均
-                factor_strs = []
-                for fname, finfo in sorted(per_factor_psnr.items()):
-                    if finfo["cnt"] > 0:
-                        avg = finfo["psnr_sum"] / finfo["cnt"]
-                        factor_strs.append(f"{fname}: {avg:.2f} dB")
-                if factor_strs:
-                    logger.info(f"    --- per-factor avg: {' | '.join(factor_strs)}")
+                if low_cnt > 0 and nonlow_cnt > 0:
+                    logger.info(f"    --- low avg: {low_psnr_sum/low_cnt:.2f} dB  |  "
+                               f"non-low avg: {nonlow_psnr_sum/nonlow_cnt:.2f} dB")
 
-                # 退化感知动态加权更新
                 if deg_reweighter:
                     deg_reweighter.update(per_deg)
                     logger.info(f"    [DegReweight] {deg_reweighter.get_status_str()}")
 
-                # best model
+                # Best model
                 if psnr > best_psnr:
                     improvement = psnr - best_psnr
                     best_psnr = psnr
@@ -1159,7 +1041,7 @@ def main():
                     logger.info(f"    No improvement ({patience_counter}/{args.patience if args.patience > 0 else 'inf'}), "
                                f"best={best_psnr:.4f}")
 
-                # early stopping
+                # Early stopping
                 if args.patience > 0 and patience_counter >= args.patience:
                     logger.info(f"!!! Early stopping at step {step}: "
                                f"no improvement for {args.patience} evals. Best={best_psnr:.4f}")
@@ -1173,7 +1055,7 @@ def main():
                         dist.destroy_process_group()
                     return
 
-            # 定期保存
+            # Periodic checkpoint
             if step % args.save_every == 0 and rank == 0:
                 ckpt_path = f"{args.output_dir}/ckpt/{step:07d}.pt"
                 torch.save({
@@ -1189,15 +1071,15 @@ def main():
             if step >= args.niter:
                 break
 
-            # 渐进式 patch: 检查是否需要在 epoch 内切换
+            # Progressive patch: check for mid-epoch transition
             if progressive_stages:
                 new_ps, new_bs = get_current_patch_config(step, progressive_stages)
                 if new_ps is not None and new_ps != current_patch_size:
-                    break  # 跳出当前 epoch，外层循环会重建 loader
+                    break
 
         epoch += 1
 
-    # 最终保存
+    # Final checkpoint
     if rank == 0:
         final_path = f"{args.output_dir}/ckpt/final.pt"
         torch.save({

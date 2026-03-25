@@ -1,10 +1,14 @@
 # utils/factor_utils.py
-# 退化因子解析工具
+# Degradation factor parsing and manipulation for CDD-11.
+#
+# Four atomic degradation types: low-light (L), haze (H), rain (R), snow (S).
+# A composite degradation name is formed by joining active factors with '_',
+# e.g. "low_haze_rain" denotes simultaneous low-light + haze + rain.
 
 import torch
 
 # ============================================================================
-# 因子定义
+# Factor definitions
 # ============================================================================
 
 FACTORS = ["low", "haze", "rain", "snow"]
@@ -20,103 +24,62 @@ IDX2FACTOR = {idx: factor for factor, idx in FACTOR2IDX.items()}
 
 
 # ============================================================================
-# 因子解析函数
+# Parsing and conversion
 # ============================================================================
 
 def parse_factors(deg_name):
-    """
-    从退化名称字符串解析出因子列表
-    
-    Args:
-        deg_name: 退化名称，如 "low_haze_rain" 或 "low"
-    
-    Returns:
-        list: 因子列表，如 ["low", "haze", "rain"]
+    """Parse a degradation name string into a list of active factors.
+
+    Example: "low_haze_rain" → ["low", "haze", "rain"]
     """
     if deg_name is None or deg_name == "":
         return []
-    
-    # 按 "_" 分割
     factors = deg_name.split("_")
-    
-    # 过滤掉无效因子
-    valid_factors = [f for f in factors if f in FACTOR2IDX]
-    
-    return valid_factors
+    return [f for f in factors if f in FACTOR2IDX]
 
 
 def factors_to_present(factors):
-    """
-    将因子列表转换为4维present向量
-    
-    Args:
-        factors: 因子列表，如 ["low", "haze"]
-    
-    Returns:
-        torch.Tensor: (4,) 的present向量，如 [1, 1, 0, 0]
+    """Convert a factor list to a 4-d binary presence vector.
+
+    Example: ["low", "haze"] → tensor([1, 1, 0, 0])
     """
     present = torch.zeros(4, dtype=torch.float32)
-    
     for factor in factors:
         if factor in FACTOR2IDX:
-            idx = FACTOR2IDX[factor]
-            present[idx] = 1.0
-    
+            present[FACTOR2IDX[factor]] = 1.0
     return present
 
 
 def build_name(factors):
+    """Reconstruct a canonical degradation name from a factor list.
+
+    Factors are sorted by their index to ensure a unique representation.
     """
-    从因子列表构建退化名称
-    
-    Args:
-        factors: 因子列表，如 ["low", "haze", "rain"]
-    
-    Returns:
-        str: 退化名称，如 "low_haze_rain"
-    """
-    # 按索引顺序排序，确保一致性
     sorted_factors = sorted(factors, key=lambda f: FACTOR2IDX.get(f, 999))
     return "_".join(sorted_factors)
 
 
 def get_leave_one_out_name(deg_name):
-    """
-    获取leave-one-out的退化名称列表
-    
-    Args:
-        deg_name: 原始退化名称，如 "low_haze_rain"
-    
-    Returns:
-        list: leave-one-out名称列表，如 ["haze_rain", "low_rain", "low_haze"]
+    """Return all leave-one-out degradation names.
+
+    Example: "low_haze_rain" → ["haze_rain", "low_rain", "low_haze"]
     """
     factors = parse_factors(deg_name)
-    
     if len(factors) <= 1:
         return []
-    
     loo_names = []
-    for i, factor in enumerate(factors):
+    for i in range(len(factors)):
         remaining = factors[:i] + factors[i+1:]
         if remaining:
             loo_names.append(build_name(remaining))
-    
     return loo_names
 
 
 def present_to_factors(present):
-    """
-    从present向量转换为因子列表
-    
-    Args:
-        present: (4,) 的present向量
-    
-    Returns:
-        list: 因子列表
-    """
+    """Convert a presence vector back to a factor list (threshold 0.5)."""
     factors = []
     for idx, val in enumerate(present):
-        if val > 0.5:  # 阈值
+        if val > 0.5:
             factor = IDX2FACTOR.get(idx)
             if factor:
                 factors.append(factor)

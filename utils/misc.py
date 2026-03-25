@@ -1,5 +1,5 @@
 # utils/misc.py
-# 杂项工具函数
+# General-purpose utilities.
 
 import os
 import random
@@ -8,7 +8,7 @@ import torch
 
 
 def seed_everything(seed=42):
-    """设置随机种子，确保可复现性"""
+    """Set all random seeds for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -18,25 +18,14 @@ def seed_everything(seed=42):
 
 
 def get_device(device_id=None):
-    """
-    获取设备（GPU 或 CPU）。
-    
-    Args:
-        device_id: GPU ID（int）或 None（自动选择）
-    
-    Returns:
-        torch.device 对象
-    """
+    """Return a ``torch.device`` (GPU if available, else CPU)."""
     if torch.cuda.is_available():
         if device_id is not None:
             return torch.device(f"cuda:{device_id}")
-        else:
-            return torch.device("cuda:0")
-    else:
-        return torch.device("cpu")
+        return torch.device("cuda:0")
+    return torch.device("cpu")
 
 
 def makedirs(path):
-    """创建目录（如果不存在）"""
+    """Create directory if it does not exist."""
     os.makedirs(path, exist_ok=True)
-

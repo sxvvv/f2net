@@ -1,18 +1,37 @@
-# Python 缓存
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-.venv/
-py312/
-# 日志
-*.log
-# LMDB 大文件（不要推送到 GitHub，GitHub 单文件限制 100MB）
-*.mdb
-data.mdb
-lock.mdb
-# 模型文件
+*.egg-info/
+dist/
+build/
+*.so
+
+# Data
+data/
+*.lmdb
+*.lmdb-lock
+
+# Results and checkpoints
+results/
+checkpoints/
 *.pt
 *.pth
-# 结果文件夹
-results/
+
+# Logs
+*.log
+wandb/
+runs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+Thumbs.db
+
+# Cache
+*.pkl
+balanced_index_cache.pkl
