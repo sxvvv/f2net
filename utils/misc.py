@@ -1,5 +1,4 @@
 # utils/misc.py
-# General-purpose utilities.
 
 import os
 import random
