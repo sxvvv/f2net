@@ -4,7 +4,7 @@
 
 ### Factorized Stochastic Transport for Composite Degradation Image Restoration
 
-[Xin Su](mailto:suxin4726@gmail.com)<sup>1,2,3,4</sup>, Jianshu Chao<sup>2,3,4*</sup>, Huifang Shen<sup>2,3,4</sup>, Anqi Chen<sup>2,3,4,5</sup>, Yuting Gao<sup>2,3,4,6</sup>, Jianya Yuan<sup>2,3,4*</sup>
+[Xin Su](mailto:suxin4726@gmail.com)<sup>1,2,3,4</sup>, Jianshu Chao<sup>2,3,4*</sup>, Huifang Shen<sup>2,3,4</sup>, Anqi Chen<sup>2,3,4,5</sup>, Yuting Gao<sup>2,3,4,6</sup>, Jianya Yuan<sup>2,3,4</sup>
 
 <sup>1</sup>Fuzhou University &nbsp; <sup>2</sup>Quanzhou Institute of Equipment Manufacturing, Haixi Institutes, CAS &nbsp; <sup>3</sup>FJIRSM, CAS &nbsp; <sup>4</sup>Fujian College, UCAS &nbsp; <sup>5</sup>FAFU &nbsp; <sup>6</sup>FJNU
 
