@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# train_fod.py
 
 import torch
 import torch.distributed as dist
