@@ -6,7 +6,7 @@
 
 <sup>1</sup>Fuzhou University &nbsp; <sup>2</sup>Quanzhou Institute of Equipment Manufacturing, Haixi Institutes, CAS &nbsp; <sup>3</sup>FJIRSM, CAS &nbsp; <sup>4</sup>Fujian College, UCAS &nbsp; <sup>5</sup>FAFU &nbsp; <sup>6</sup>FJNU
 
-[[Project Page]](https://sxvvv.github.io/f2net/)
+[![project](https://img.shields.io/badge/project-page-brightgreen)](https://sxvvv.github.io/f2net)
 
 <img src="assets/model.png" width="90%">
 </div>
