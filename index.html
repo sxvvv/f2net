@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F2D-Net: Factorized Stochastic Transport for Composite Degradation Image Restoration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;1,400&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root{--primary:#2c3e50;--accent:#3498db;--accent-dark:#2980b9;--bg:#fafbfc;--card-bg:#fff;--text:#333;--text-light:#666;--border:#e1e4e8;--highlight:#f0f7ff}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:"Open Sans",-apple-system,BlinkMacSystemFont,sans-serif;color:var(--text);background:var(--bg);line-height:1.7}
+        .container{max-width:900px;margin:0 auto;padding:0 24px}
+        .hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#fff;padding:60px 0 50px;text-align:center}
+        .hero h1{font-family:"Noto Serif",Georgia,serif;font-size:2.2em;font-weight:700;margin-bottom:12px;line-height:1.3}
+        .hero .subtitle{font-size:1.05em;color:#a8c8e8;margin-bottom:24px}
+        .authors{font-size:1.05em;margin-bottom:8px;line-height:1.8}
+        .authors a{color:#8ec5fc;text-decoration:none}
+        .authors a:hover{text-decoration:underline}
+        .authors sup{font-size:.7em}
+        .affiliations{font-size:.82em;color:#94b8d4;margin-bottom:20px;line-height:1.6}
+        .venue{font-size:.95em;color:#f0c040;font-weight:600;margin-bottom:24px}
+        .hero-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+        .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:6px;font-size:.92em;font-weight:600;text-decoration:none;transition:all .2s}
+        .btn-primary{background:var(--accent);color:#fff}
+        .btn-primary:hover{background:var(--accent-dark);transform:translateY(-1px)}
+        .btn-outline{background:rgba(255,255,255,.1);color:#fff;border:1.5px solid rgba(255,255,255,.3)}
+        .btn-outline:hover{background:rgba(255,255,255,.2);transform:translateY(-1px)}
+        section{padding:40px 0}
+        section h2{font-family:"Noto Serif",Georgia,serif;font-size:1.6em;color:var(--primary);margin-bottom:20px;padding-bottom:8px;border-bottom:2px solid var(--accent);display:inline-block}
+        .abstract-text{background:var(--card-bg);border-left:4px solid var(--accent);padding:20px 24px;border-radius:0 8px 8px 0;font-size:.95em;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+        .highlights{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px}
+        .highlight-card{background:var(--card-bg);border-radius:8px;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,.06);border-top:3px solid var(--accent)}
+        .highlight-card .icon{font-size:1.4em;margin-bottom:8px}
+        .highlight-card p{font-size:.88em;color:var(--text-light)}
+        .framework-fig{text-align:center;margin:20px 0}
+        .framework-fig img{max-width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1)}
+        .framework-fig .caption{font-size:.85em;color:var(--text-light);margin-top:10px;font-style:italic}
+        .results-table-wrap{overflow-x:auto;margin:16px 0}
+        table{width:100%;border-collapse:collapse;background:var(--card-bg);border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);font-size:.88em}
+        thead{background:var(--primary);color:#fff}
+        th,td{padding:10px 14px;text-align:center}
+        th{font-weight:600;font-size:.9em}
+        tbody tr:nth-child(even){background:#f8f9fa}
+        tbody tr:hover{background:var(--highlight)}
+        tr.ours{background:#e8f4f8 !important;font-weight:600}
+        .best{color:#c0392b;font-weight:700}
+        .bibtex-block{background:#1e1e1e;color:#d4d4d4;padding:20px 24px;border-radius:8px;font-family:"Courier New",monospace;font-size:.82em;line-height:1.6;overflow-x:auto;position:relative}
+        .copy-btn{position:absolute;top:10px;right:10px;background:#444;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:.8em}
+        .copy-btn:hover{background:#666}
+        footer{text-align:center;padding:30px 0;color:var(--text-light);font-size:.82em;border-top:1px solid var(--border)}
+        footer a{color:var(--accent);text-decoration:none}
+        .method-text{font-size:.93em}
+        .method-text p{margin-bottom:12px}
+        .eq-block{background:var(--card-bg);padding:14px 20px;border-radius:8px;text-align:center;margin:16px 0;font-family:"Noto Serif",Georgia,serif;font-style:italic;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+        @media(max-width:640px){.hero h1{font-size:1.5em}.highlights{grid-template-columns:1fr}.hero-buttons{flex-direction:column;align-items:center}}
+    </style>
+</head>
+<body>
+<header class="hero">
+    <div class="container">
+        <h1>F<sup>2</sup>D-Net</h1>
+        <p class="subtitle">Factorized Stochastic Transport for Composite Degradation Image Restoration</p>
+        <p class="authors">
+            <a href="mailto:suxin4726@gmail.com">Xin Su</a><sup>1,2,3,4</sup>,
+            <a href="mailto:jchao@fjirsm.ac.cn">Jianshu Chao</a><sup>2,3,4*</sup>,
+            Huifang Shen<sup>2,3,4</sup>,
+            Anqi Chen<sup>2,3,4,5</sup>,
+            Yuting Gao<sup>2,3,4,6</sup>
+        </p>
+        <p class="affiliations">
+            <sup>1</sup>Fuzhou University &nbsp;&nbsp;
+            <sup>2</sup>Quanzhou Inst. of Equipment Mfg., Haixi Institutes, CAS &nbsp;&nbsp;
+            <sup>3</sup>FJIRSM, CAS<br>
+            <sup>4</sup>Fujian College, UCAS &nbsp;&nbsp;
+            <sup>5</sup>FAFU &nbsp;&nbsp;
+            <sup>6</sup>FJNU &nbsp;&nbsp;
+            <sup>*</sup>Corresponding author
+        </p>
+        <p class="venue">Pattern Recognition (Under Review)</p>
+        <div class="hero-buttons">
+            <a href="https://arxiv.org/" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Paper</a>
+            <a href="https://github.com/sxvvv/f2net" class="btn btn-outline"><i class="fa-brands fa-github"></i> Code</a>
+        </div>
+    </div>
+</header>
+
+<section>
+    <div class="container">
+        <h2>Abstract</h2>
+        <div class="abstract-text">
+            Composite image degradations, where rain, haze, low-light, and snow overlap spatially within a single frame, pose a fundamental challenge for unified restoration models. We identify two failure modes on such inputs. First, deterministic flow transport averages over feasible solutions, collapsing to over-smoothed predictions. Second, image-level expert routing yields a selectivity ratio of only 1.2&times;, assigning near-uniform capacity and under-specializing on localized distortions. Building upon these observations, we propose a <strong>Factorized Flow-Driven Network (F<sup>2</sup>D-Net)</strong>, a stochastic transport framework that factorizes the restoration velocity field into a shared backbone and degradation-specific expert increments assembled at every pixel via learned spatial gating. The core mechanism is a state-dependent multiplicative noise whose magnitude scales with the local residual to the clean target: large far from the solution to explore diverse reconstructions, vanishing upon convergence to preserve fine details. This formulation admits closed-form log-normal transitions, enabling single-step inference at feed-forward speed. On CDD-11, F<sup>2</sup>D-Net achieves the best structural and perceptual quality across all complexity tiers with 10.3&times; expert selectivity, and remains competitive on standard three-task and five-task all-in-one benchmarks.
+        </div>
+    </div>
+</section>
+
+<section style="padding-top:0">
+    <div class="container">
+        <h2>Highlights</h2>
+        <div class="highlights">
+            <div class="highlight-card"><div class="icon">&#128269;</div><p><strong>Failure Mode Analysis.</strong> Two failure modes of existing all-in-one restoration on composite degradations are identified: velocity averaging and under-specialized routing.</p></div>
+            <div class="highlight-card"><div class="icon">&#9881;&#65039;</div><p><strong>Factorized Velocity Field.</strong> A spatially gated mixture-of-experts decomposes the restoration flow into shared and degradation-specific components.</p></div>
+            <div class="highlight-card"><div class="icon">&#9889;</div><p><strong>Single-Step Inference.</strong> State-dependent multiplicative noise admits closed-form log-normal transitions for feed-forward-speed sampling.</p></div>
+            <div class="highlight-card"><div class="icon">&#127942;</div><p><strong>State-of-the-Art Quality.</strong> Best structural and perceptual quality on CDD-11 with 10.3&times; expert selectivity.</p></div>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="container">
+        <h2>Method</h2>
+        <div class="framework-fig">
+            <img src="static/model.png" alt="F2D-Net Framework">
+            <p class="caption">Figure 1. Conceptual overview of F<sup>2</sup>D-Net. Left: stochastic transport trajectory from degraded input toward clean target via log-normal transitions. Center: the flow field is factorized into a shared backbone component and four expert increments weighted by spatial gating maps and temporal coefficients. Right: dynamic gating evolves over time, allocating different expert contributions at different stages.</p>
+        </div>
+        <div class="method-text">
+            <p>F<sup>2</sup>D-Net formulates image restoration as a <strong>forward-only stochastic transport process</strong>. The key insight is to use state-dependent multiplicative noise: when the current estimate is far from the clean target, larger uncertainty helps account for restoration ambiguity; as the estimate converges, the noise contracts, preserving precision.</p>
+            <div class="eq-block">dx<sub>t</sub> = &theta;<sub>t</sub>(&mu; &minus; x<sub>t</sub>)dt + &sigma;<sub>t</sub> diag(x<sub>t</sub> &minus; &mu;) dw<sub>t</sub></div>
+            <p>This SDE admits a <strong>closed-form log-normal solution</strong>, enabling both efficient training via direct sampling of intermediate states and single-step inference via analytic transition kernels.</p>
+            <p>The restoration velocity field is <strong>factorized</strong> into a shared backbone and degradation-specific expert increments:</p>
+            <div class="eq-block">f(x<sub>t</sub>, t, y) = f<sub>share</sub>(x<sub>t</sub>, t, y) + &Sigma;<sub>i</sub> &alpha;<sub>i</sub>(t, w) &middot; m<sub>i</sub> &odot; &Delta;f<sub>i</sub>(x<sub>t</sub>, t)</div>
+            <p>where &alpha;<sub>i</sub> are time-conditioned gating weights, m<sub>i</sub> are spatial intensity maps, and &Delta;f<sub>i</sub> are lightweight expert adapters with varying dilation rates.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="container">
+        <h2>Results</h2>
+        <h3 style="margin:20px 0 10px;font-size:1.1em;color:var(--primary)">CDD-11 Composite Degradation</h3>
+        <div class="results-table-wrap"><table>
+            <thead><tr><th>Method</th><th>Single PSNR</th><th>Pairwise PSNR</th><th>Triple PSNR</th><th>Avg PSNR</th><th>Avg SSIM</th></tr></thead>
+            <tbody>
+                <tr><td>AirNet</td><td>25.60</td><td>22.97</td><td>22.02</td><td>23.75</td><td>0.814</td></tr>
+                <tr><td>PromptIR</td><td>28.88</td><td>24.46</td><td>23.54</td><td>25.90</td><td>0.850</td></tr>
+                <tr><td>OneRestore</td><td>31.68</td><td>27.35</td><td>24.84</td><td>28.47</td><td>0.878</td></tr>
+                <tr><td>MoCE-IR</td><td class="best">32.54</td><td class="best">27.73</td><td class="best">25.40</td><td class="best">29.05</td><td>0.881</td></tr>
+                <tr class="ours"><td>F<sup>2</sup>D-Net</td><td>32.08</td><td>27.72</td><td>25.18</td><td>28.72</td><td class="best">0.884</td></tr>
+            </tbody>
+        </table></div>
+
+        <h3 style="margin:24px 0 10px;font-size:1.1em;color:var(--primary)">Three-Task All-in-One Restoration</h3>
+        <div class="results-table-wrap"><table>
+            <thead><tr><th>Method</th><th>Dehaze (SOTS)</th><th>Derain (Rain100L)</th><th>Denoise &sigma;=15</th><th>Denoise &sigma;=25</th><th>Denoise &sigma;=50</th></tr></thead>
+            <tbody>
+                <tr><td>PromptIR</td><td>30.58</td><td>36.37</td><td>33.98</td><td>31.31</td><td>28.06</td></tr>
+                <tr><td>MoCE-IR</td><td>31.34</td><td class="best">38.57</td><td>34.11</td><td>31.45</td><td>28.18</td></tr>
+                <tr class="ours"><td>F<sup>2</sup>D-Net</td><td class="best">31.40</td><td>37.62</td><td class="best">34.48</td><td class="best">31.74</td><td class="best">28.35</td></tr>
+            </tbody>
+        </table></div>
+
+        <h3 style="margin:24px 0 10px;font-size:1.1em;color:var(--primary)">Five-Task All-in-One Restoration</h3>
+        <div class="results-table-wrap"><table>
+            <thead><tr><th>Method</th><th>Params</th><th>Dehaze</th><th>Derain</th><th>Denoise</th><th>Deblur</th><th>Low-light</th><th>Avg PSNR</th></tr></thead>
+            <tbody>
+                <tr><td>PromptIR</td><td>36M</td><td>29.85</td><td>36.92</td><td>31.28</td><td>29.52</td><td>22.15</td><td>29.94</td></tr>
+                <tr><td>MoCE-IR</td><td>25M</td><td class="best">30.48</td><td>38.04</td><td>31.34</td><td class="best">30.05</td><td>23.00</td><td>30.58</td></tr>
+                <tr class="ours"><td>F<sup>2</sup>D-Net</td><td>23.8M</td><td>30.35</td><td class="best">38.42</td><td class="best">31.48</td><td>29.87</td><td class="best">23.32</td><td class="best">30.69</td></tr>
+            </tbody>
+        </table></div>
+
+        <h3 style="margin:24px 0 10px;font-size:1.1em;color:var(--primary)">Perceptual &amp; Distributional Quality on CDD-11</h3>
+        <div class="results-table-wrap"><table>
+            <thead><tr><th>Method</th><th>Avg LPIPS &#8595;</th><th>Avg DISTS &#8595;</th><th>FID &#8595;</th><th>NIQE &#8595;</th><th>MUSIQ &#8593;</th><th>CLIP-IQA &#8593;</th></tr></thead>
+            <tbody>
+                <tr><td>OneRestore</td><td>0.115</td><td>0.096</td><td>45.2</td><td>4.68</td><td>66.8</td><td>0.592</td></tr>
+                <tr><td>MoCE-IR</td><td>0.108</td><td>0.089</td><td>38.8</td><td>4.28</td><td>67.5</td><td>0.605</td></tr>
+                <tr class="ours"><td>F<sup>2</sup>D-Net</td><td class="best">0.096</td><td class="best">0.079</td><td class="best">27.2</td><td class="best">3.92</td><td class="best">71.4</td><td class="best">0.638</td></tr>
+            </tbody>
+        </table></div>
+    </div>
+</section>
+
+<section>
+    <div class="container">
+        <h2>Citation</h2>
+        <div class="bibtex-block">
+            <button class="copy-btn" onclick="copyBib()"><i class="fa-regular fa-copy"></i> Copy</button>
+<pre>@article{su2025f2dnet,
+  title={Factorized Stochastic Transport for Composite
+         Degradation Image Restoration},
+  author={Su, Xin and Chao, Jianshu and Shen, Huifang
+          and Chen, Anqi and Gao, Yuting},
+  journal={Pattern Recognition},
+  year={2025}
+}</pre>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <p>F<sup>2</sup>D-Net &copy; 2025 &middot; <a href="https://github.com/sxvvv/f2net">GitHub</a></p>
+        <p style="margin-top:4px">Template inspired by <a href="https://nerfies.github.io/">Nerfies</a></p>
+    </div>
+</footer>
+
+<script>
+function copyBib(){var b=document.querySelector(".bibtex-block pre").textContent;navigator.clipboard.writeText(b).then(function(){var t=document.querySelector(".copy-btn");t.innerHTML="Copied!";setTimeout(function(){t.innerHTML="Copy"},2e3)})}
+</script>
+</body>
+</html>
