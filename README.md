@@ -83,7 +83,7 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train_fod.py \
 
 ## Acknowledgements
 
-This code is based on [[OneRestore]](https://github.com/gy65896/OneRestore/) and [[MoCEIR]](https://github.com/eduardzamfir/MoCE-IR). Thanks for their awesome work.
+This code is based on [OneRestore](https://github.com/gy65896/OneRestore/) and [MoCEIR](https://github.com/eduardzamfir/MoCE-IR). Thanks for their awesome work.
 
 ## License
 
