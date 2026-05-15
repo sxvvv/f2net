@@ -9,21 +9,24 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;1,400&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        :root{--primary:#2c3e50;--accent:#3498db;--accent-dark:#2980b9;--bg:#fafbfc;--card-bg:#fff;--text:#333;--text-light:#666;--border:#e1e4e8}
+        :root{--primary:#1f2d3d;--accent:#3498db;--accent-dark:#2980b9;--bg:#fafbfc;--card-bg:#fff;--text:#2c3e50;--text-light:#5a6675;--border:#e4e8ee;--muted:#f1f4f8}
         *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:"Open Sans",-apple-system,BlinkMacSystemFont,sans-serif;color:var(--text);background:var(--bg);line-height:1.7}
-        .container{max-width:900px;margin:0 auto;padding:0 24px}
+        body{font-family:"Open Sans",-apple-system,BlinkMacSystemFont,sans-serif;color:var(--text);background:var(--bg);line-height:1.7;-webkit-font-smoothing:antialiased}
+        .container{max-width:920px;margin:0 auto;padding:0 24px}
 
         /* Hero */
-        .hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#fff;padding:60px 0 50px;text-align:center}
-        .hero h1{font-family:"Noto Serif",Georgia,serif;font-size:2.2em;font-weight:700;margin-bottom:12px;line-height:1.3}
-        .hero .subtitle{font-size:1.05em;color:#a8c8e8;margin-bottom:24px}
-        .authors{font-size:1.05em;margin-bottom:8px;line-height:1.8}
+        .hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#fff;padding:64px 0 52px;text-align:center;position:relative;overflow:hidden}
+        .hero::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at top,rgba(142,197,252,.12),transparent 60%);pointer-events:none}
+        .hero>*{position:relative}
+        .venue{display:inline-block;font-size:.78em;letter-spacing:.18em;text-transform:uppercase;color:#a8c8e8;border:1px solid rgba(168,200,232,.35);padding:4px 12px;border-radius:50px;margin-bottom:18px}
+        .hero h1{font-family:"Noto Serif",Georgia,serif;font-size:2.3em;font-weight:700;margin-bottom:12px;line-height:1.3;letter-spacing:-.5px}
+        .hero .subtitle{font-size:1.08em;color:#cbd9e8;margin-bottom:26px;font-style:italic;font-weight:400}
+        .authors{font-size:1.04em;margin-bottom:8px;line-height:1.85}
         .authors a{color:#8ec5fc;text-decoration:none}
         .authors a:hover{text-decoration:underline}
         .authors sup{font-size:.7em}
-        .affiliations{font-size:.82em;color:#94b8d4;margin-bottom:28px;line-height:1.6}
-        .hero-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+        .affiliations{font-size:.8em;color:#94b8d4;margin-bottom:28px;line-height:1.7}
+        .hero-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:24px}
 
         /* Nerfies-style dark pill buttons */
         .btn-pill{display:inline-flex;align-items:center;gap:8px;padding:10px 24px;border-radius:50px;font-size:.92em;font-weight:600;text-decoration:none;transition:all .25s;background:#363636;color:#fff;border:none;cursor:pointer}
@@ -31,22 +34,30 @@
         .btn-pill.disabled{opacity:.45;cursor:default;pointer-events:none}
         .btn-pill i{font-size:1.1em}
 
+        /* Highlights pill row */
+        .highlights{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+        .highlights span{font-size:.78em;color:#cbd9e8;background:rgba(255,255,255,.06);border:1px solid rgba(168,200,232,.22);padding:5px 12px;border-radius:50px;backdrop-filter:blur(2px)}
+        .highlights span b{color:#8ec5fc;font-weight:700}
+
         /* Sections */
-        section{padding:40px 0}
-        section h2{font-family:"Noto Serif",Georgia,serif;font-size:1.6em;color:var(--primary);margin-bottom:20px;padding-bottom:8px;border-bottom:2px solid var(--accent);display:inline-block}
+        section{padding:48px 0}
+        section h2{font-family:"Noto Serif",Georgia,serif;font-size:1.65em;color:var(--primary);margin-bottom:24px;padding-bottom:10px;border-bottom:2px solid var(--accent);display:inline-block;letter-spacing:-.3px}
+        section h2 + p.lead{font-size:.95em;color:var(--text-light);margin:-12px 0 18px;max-width:760px}
+        section.alt{background:var(--muted);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 
         /* Abstract */
-        .abstract-text{background:var(--card-bg);border-left:4px solid var(--accent);padding:20px 24px;border-radius:0 8px 8px 0;font-size:.95em;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+        .abstract-text{background:var(--card-bg);border-left:4px solid var(--accent);padding:22px 26px;border-radius:0 8px 8px 0;font-size:.95em;box-shadow:0 2px 10px rgba(0,0,0,.05);text-align:justify;hyphens:auto}
 
         /* Framework figure */
         .framework-fig{text-align:center;margin:20px 0}
         .framework-fig img{max-width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1)}
-        .framework-fig .caption{font-size:.85em;color:var(--text-light);margin-top:10px;font-style:italic}
+        .framework-fig .caption{font-size:.85em;color:var(--text-light);margin-top:12px;font-style:italic;max-width:780px;margin-left:auto;margin-right:auto;line-height:1.55}
 
         /* Method text */
-        .method-text{font-size:.93em}
-        .method-text p{margin-bottom:12px}
-        .eq-block{background:var(--card-bg);padding:14px 20px;border-radius:8px;text-align:center;margin:16px 0;font-family:"Noto Serif",Georgia,serif;font-style:italic;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+        .method-text{font-size:.94em;text-align:justify;hyphens:auto}
+        .method-text p{margin-bottom:14px}
+        .method-text strong{color:var(--primary)}
+        .eq-block{background:var(--card-bg);padding:16px 22px;border-radius:8px;text-align:center;margin:18px 0;font-family:"Noto Serif",Georgia,serif;font-style:italic;box-shadow:0 1px 4px rgba(0,0,0,.06);border:1px solid var(--border);font-size:1.02em;overflow-x:auto}
 
         /* ── Before / After Slider ── */
         .comparison-grid{display:flex;flex-direction:column;gap:32px;margin-top:20px}
@@ -63,14 +74,23 @@
         .slider-label.right{right:10px}
 
         /* Comparison strips */
-        .compare-section{margin-top:32px}
+        .compare-section{margin-top:36px}
         .compare-section h3{font-size:1.1em;color:var(--primary);margin-bottom:16px;font-weight:600}
-        .compare-strip{width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);margin-bottom:20px}
+        .compare-strip{width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);margin-bottom:20px;background:#fff}
         .compare-strip img{width:100%;display:block;border-radius:8px}
 
+        /* WeatherBench panel */
+        .wb-panel{background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:18px 20px;box-shadow:0 2px 10px rgba(0,0,0,.04);margin-bottom:18px}
+        .wb-panel h3{font-size:1em;color:var(--primary);font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+        .wb-panel h3 .tag{font-size:.7em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:var(--accent);padding:3px 10px;border-radius:50px}
+        .wb-panel img{width:100%;border-radius:6px;display:block}
+        .wb-panel .caption{font-size:.83em;color:var(--text-light);margin-top:8px;font-style:italic;line-height:1.55}
+        .wb-note{font-size:.85em;color:var(--text-light);margin-top:12px;padding:12px 16px;background:var(--muted);border-radius:8px;border-left:3px solid var(--accent)}
+
         /* Footer */
-        footer{text-align:center;padding:30px 0;color:var(--text-light);font-size:.82em;border-top:1px solid var(--border)}
+        footer{text-align:center;padding:32px 0;color:var(--text-light);font-size:.82em;border-top:1px solid var(--border)}
         footer a{color:var(--accent);text-decoration:none}
+        footer a:hover{text-decoration:underline}
 
         @media(max-width:640px){
             .hero h1{font-size:1.5em}
@@ -82,6 +102,7 @@
 
 <header class="hero">
     <div class="container">
+        <span class="venue">Knowledge-Based Systems &middot; Under Review</span>
         <h1>F<sup>2</sup>D-Net</h1>
         <p class="subtitle">Factorized Stochastic Transport for Composite Degradation Image Restoration</p>
         <p class="authors">
@@ -105,6 +126,12 @@
             <span class="btn-pill disabled"><i class="fa-solid fa-file-pdf"></i> Paper</span>
             <a href="https://github.com/sxvvv/f2net" class="btn-pill"><i class="fa-brands fa-github"></i> Code</a>
         </div>
+        <div class="highlights">
+            <span><b>Single-step</b> inference</span>
+            <span><b>Best</b> SSIM on CDD-11</span>
+            <span><b>61&times;</b> faster than IR-SDE</span>
+            <span><b>Pixel-wise</b> expert routing</span>
+        </div>
     </div>
 </header>
 
@@ -119,20 +146,21 @@
 </section>
 
 <!-- Method -->
-<section>
+<section class="alt">
     <div class="container">
         <h2>Method</h2>
+        <p class="lead">F<sup>2</sup>D-Net addresses two failure modes of all-in-one restorers on composite inputs: deterministic flow transport collapses to the conditional mean, and image-level expert routing leaves experts under-specialized.</p>
         <div class="framework-fig">
             <img src="static/model.png" alt="F2D-Net Framework">
-            <p class="caption">Figure 1. Overview of F<sup>2</sup>D-Net. The restoration velocity field is factorized into a shared backbone component and degradation-specific expert increments, assembled at every pixel via learned spatial gating and temporal coefficients.</p>
+            <p class="caption">Figure&nbsp;1.&nbsp; Overview of F<sup>2</sup>D-Net. The restoration velocity field is factorized into a shared backbone and four degradation-specific expert increments, assembled at every pixel via learned spatial gating maps and time-conditioned coefficients.</p>
         </div>
         <div class="method-text">
-            <p>F<sup>2</sup>D-Net formulates image restoration as a <strong>forward-only stochastic transport process</strong>. The key insight is to use state-dependent multiplicative noise: when the current estimate is far from the clean target, larger uncertainty helps account for restoration ambiguity; as the estimate converges, the noise contracts, preserving precision.</p>
-            <div class="eq-block">dx<sub>t</sub> = &theta;<sub>t</sub>(&mu; &minus; x<sub>t</sub>)dt + &sigma;<sub>t</sub> diag(x<sub>t</sub> &minus; &mu;) dw<sub>t</sub></div>
-            <p>This SDE admits a <strong>closed-form log-normal solution</strong>, enabling both efficient training via direct sampling of intermediate states and single-step inference via analytic transition kernels.</p>
-            <p>The restoration velocity field is <strong>factorized</strong> into a shared backbone and degradation-specific expert increments:</p>
-            <div class="eq-block">f(x<sub>t</sub>, t, y) = f<sub>share</sub>(x<sub>t</sub>, t, y) + &Sigma;<sub>i</sub> &alpha;<sub>i</sub>(t, w) &middot; m<sub>i</sub> &odot; &Delta;f<sub>i</sub>(x<sub>t</sub>, t)</div>
-            <p>where &alpha;<sub>i</sub> are time-conditioned gating weights, m<sub>i</sub> are spatial intensity maps, and &Delta;f<sub>i</sub> are lightweight expert adapters with varying dilation rates.</p>
+            <p><strong>Stochastic transport with state-dependent noise.</strong> We formulate restoration as a forward-only stochastic transport process from the degraded observation to the clean target. The diffusion coefficient is scaled by the residual to the target, so the noise is large far from the solution and contracts to zero upon convergence:</p>
+            <div class="eq-block">d<b>x</b><sub>t</sub> = &theta;<sub>t</sub>(<b>&mu;</b> &minus; <b>x</b><sub>t</sub>) dt + &sigma;<sub>t</sub>&thinsp;diag(<b>x</b><sub>t</sub> &minus; <b>&mu;</b>) d<b>w</b><sub>t</sub></div>
+            <p>This SDE admits a <strong>closed-form log-normal transition</strong>, which enables direct sampling of intermediate states during training and reduces inference to a single network evaluation through analytic transitions.</p>
+            <p><strong>Factorized velocity field.</strong> Vector additivity of flow matching motivates decomposing the restoration velocity into a shared backbone and degradation-specific expert increments, assembled at every pixel through spatial intensity maps <b>m</b><sub>i</sub> and time-conditioned gating weights &alpha;<sub>i</sub>:</p>
+            <div class="eq-block">f<sub>&phi;</sub>(<b>x</b><sub>t</sub>, t, y) = f<sub>share</sub>(<b>x</b><sub>t</sub>, t, y) + &Sigma;<sub>i</sub> &alpha;<sub>i</sub>(t, <b>w</b>) &middot; <b>m</b><sub>i</sub> &odot; &Delta;f<sub>i</sub>(<b>x</b><sub>t</sub>, t)</div>
+            <p>A lightweight CNN parser produces both the spatial maps <b>m</b><sub>i</sub> and the global degradation weights <b>w</b> in one forward pass; the time-conditioned gate then schedules each expert across the transport trajectory. The shared backbone absorbs cross-degradation interactions while each &Delta;f<sub>i</sub> specializes on a single atomic flow.</p>
         </div>
     </div>
 </section>
@@ -198,6 +226,34 @@
             <div class="compare-strip"><img src="static/demo/haze_snow_compare.jpg" alt="Haze+Snow comparison"></div>
             <div class="compare-strip"><img src="static/demo/low_haze_rain_compare.jpg" alt="Low-light+Haze+Rain comparison"></div>
         </div>
+    </div>
+</section>
+
+<!-- Real-World Generalization -->
+<section class="alt">
+    <div class="container">
+        <h2>Real-World Generalization</h2>
+        <p class="lead">Trained on synthetic CDD-11, F<sup>2</sup>D-Net transfers to real captures from <strong>WeatherBench</strong> (paired rain, snow, haze) without retraining for any single task.</p>
+
+        <div class="wb-panel">
+            <h3><span class="tag">Dehaze</span> Per-pixel error map</h3>
+            <img src="static/weather/dehaze_local_error.png" alt="WeatherBench dehaze qualitative comparison">
+            <p class="caption">F<sup>2</sup>D-Net retains tighter error distribution and preserves edge structure under real haze.</p>
+        </div>
+
+        <div class="wb-panel">
+            <h3><span class="tag">Derain</span> Per-pixel error map</h3>
+            <img src="static/weather/derain_local_error.png" alt="WeatherBench derain qualitative comparison">
+            <p class="caption">Largest single-task gain on WeatherBench; rain streaks are removed without smearing background texture.</p>
+        </div>
+
+        <div class="wb-panel">
+            <h3><span class="tag">Desnow</span> Per-pixel error map</h3>
+            <img src="static/weather/desnow_local_error.png" alt="WeatherBench desnow qualitative comparison">
+            <p class="caption">Spatially adaptive expert gating localizes snow particles while leaving clean regions untouched.</p>
+        </div>
+
+        <p class="wb-note">Per-pixel error uses the inferno colormap; brighter pixels denote larger error against the paired ground truth. F<sup>2</sup>D-Net is the same single checkpoint across all three tasks.</p>
     </div>
 </section>
 
