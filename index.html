@@ -86,17 +86,17 @@
         <p class="subtitle">Factorized Stochastic Transport for Composite Degradation Image Restoration</p>
         <p class="authors">
             <a href="mailto:suxin4726@gmail.com">Xin Su</a><sup>1,2,3,4</sup>,
-            Jianshu Chao<sup>2,3,4*</sup>,
-            Huifang Shen<sup>2,3,4</sup>,
-            Anqi Chen<sup>2,3,4,5</sup>,
-            Yuting Gao<sup>2,3,4,6</sup>,
-            Jianya Yuan<sup>2,3,4</sup>
+            Jianshu Chao<sup>1,2,3*</sup>,
+            Huifang Shen<sup>1,2,3</sup>,
+            Anqi Chen<sup>1,2,3,5</sup>,
+            Yuting Gao<sup>1,2,3,6</sup>,
+            Jianya Yuan<sup>1,2,3</sup>
         </p>
         <p class="affiliations">
-            <sup>1</sup>Fuzhou University &nbsp;&nbsp;
-            <sup>2</sup>Quanzhou Inst. of Equipment Mfg., Haixi Institutes, CAS &nbsp;&nbsp;
-            <sup>3</sup>FJIRSM, CAS<br>
-            <sup>4</sup>Fujian College, UCAS &nbsp;&nbsp;
+            <sup>1</sup>Quanzhou Inst. of Equipment Mfg., Haixi Institutes, CAS &nbsp;&nbsp;
+            <sup>2</sup>FJIRSM, CAS &nbsp;&nbsp;
+            <sup>3</sup>Fujian College, UCAS<br>
+            <sup>4</sup>Fuzhou University &nbsp;&nbsp;
             <sup>5</sup>FAFU &nbsp;&nbsp;
             <sup>6</sup>FJNU &nbsp;&nbsp;
             <sup>*</sup>Corresponding author
@@ -113,7 +113,8 @@
     <div class="container">
         <h2>Abstract</h2>
         <div class="abstract-text">
-            Composite image degradations, where rain, haze, low-light, and snow overlap spatially within a single frame, pose a fundamental challenge for unified restoration models. We identify two failure modes on such inputs. First, deterministic flow transport averages over feasible solutions, collapsing to over-smoothed predictions. Second, image-level expert routing yields a selectivity ratio of only 1.2$\times$, assigning near-uniform capacity and under-specializing on localized distortions. Building upon these observations, we propose a Factorized Flow-Driven Network (F$^2$D-Net), a stochastic transport framework that factorizes the restoration velocity field into a shared backbone and degradation-specific expert increments assembled at every pixel via learned spatial gating. The core mechanism is a state-dependent multiplicative noise whose magnitude scales with the local residual to the clean target: large far from the solution to explore diverse reconstructions, vanishing upon convergence to preserve fine details. This formulation admits closed-form log-normal transitions, enabling single-step inference at feed-forward speed. On CDD-11, F$^2$D-Net achieves the best structural and perceptual quality across all complexity tiers with substantially higher expert selectivity than image-level routing, and remains competitive on standard three-task and five-task all-in-one benchmarks.        </div>
+            Composite image degradations, where rain, haze, low-light, and snow overlap spatially within a single frame, pose a fundamental challenge for unified restoration models. We identify two failure modes on such inputs. First, deterministic flow transport averages over feasible solutions and collapses to over-smoothed predictions. Second, image-level expert routing yields a selectivity ratio of only 1.2&times;, with near-uniform weights that leave experts under-specialized on localized distortions. Motivated by these observations, we propose F<sup>2</sup>D-Net, a factorized stochastic transport framework. The model factorizes the restoration velocity field into a shared backbone and degradation-specific expert increments, and a learned spatial gating assembles them at every pixel. The core mechanism is a state-dependent multiplicative noise whose magnitude scales with the local residual. The noise remains large far from the clean target to encourage diverse reconstructions, and contracts to zero at convergence to preserve fine detail. The closed-form log-normal transition collapses sampling to one network call, matching feed-forward speed. On CDD-11, F<sup>2</sup>D-Net attains the best structural and perceptual quality across all complexity tiers with substantially higher expert selectivity than image-level routing. It also remains competitive on standard three-task and five-task all-in-one benchmarks, and generalizes to real-world weather degradations on WeatherBench and RTTS.
+        </div>
     </div>
 </section>
 
